@@ -27,6 +27,9 @@ jobs:
         with:
           toolchain: stable
       
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+      
       - name: Install dependencies
         run: pnpm install
       
