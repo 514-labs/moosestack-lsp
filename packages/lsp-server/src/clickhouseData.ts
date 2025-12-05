@@ -142,8 +142,8 @@ export async function loadClickHouseData(
   );
 
   // Check cache
-  if (dataCache.has(matchedVersion)) {
-    const cached = dataCache.get(matchedVersion)!;
+  const cached = dataCache.get(matchedVersion);
+  if (cached) {
     // Add warning if version differs
     if (matchedVersion !== normalizedRequested) {
       return {
