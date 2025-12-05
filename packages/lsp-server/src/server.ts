@@ -41,6 +41,7 @@ const documents = new TextDocuments(TextDocument);
 let mooseProjectRoot: string | null = null;
 let tsService: TypeScriptService | null = null;
 let clickhouseData: ClickHouseData | null = null;
+let clientSupportsSnippets = false;
 
 // Debounce timers for as-you-type validation
 const validationTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -203,6 +204,13 @@ async function loadClickHouseCompletionData(
 
 connection.onInitialize(
   async (params: InitializeParams): Promise<InitializeResult> => {
+    // Check if client supports snippet completions
+    clientSupportsSnippets =
+      params.capabilities.textDocument?.completion?.completionItem
+        ?.snippetSupport ?? false;
+
+    connection.console.log(`Client snippet support: ${clientSupportsSnippets}`);
+
     const workspaceRoot = params.rootUri
       ? new URL(params.rootUri).pathname
       : null;
@@ -413,7 +421,9 @@ connection.onCompletion((params: CompletionParams): CompletionItem[] => {
     const prefix = wordMatch ? wordMatch[0] : '';
 
     // Generate and filter completions
-    const allCompletions = generateCompletionItems(clickhouseData);
+    const allCompletions = generateCompletionItems(clickhouseData, {
+      useSnippets: clientSupportsSnippets,
+    });
     return filterCompletions(allCompletions, prefix);
   } catch {
     return [];

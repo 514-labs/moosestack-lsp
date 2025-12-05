@@ -15,16 +15,26 @@ import type {
 /**
  * Creates a completion item for a ClickHouse function.
  */
-function createFunctionCompletion(func: FunctionInfo): CompletionItem {
+function createFunctionCompletion(
+  func: FunctionInfo,
+  useSnippets: boolean,
+): CompletionItem {
   const item: CompletionItem = {
     label: func.name,
     kind: func.isAggregate
       ? CompletionItemKind.Method
       : CompletionItemKind.Function,
     detail: func.isAggregate ? '(aggregate function)' : '(function)',
-    insertText: `${func.name}($1)$0`,
-    insertTextFormat: InsertTextFormat.Snippet,
   };
+
+  // Use snippet format if client supports it, otherwise plain text with parens
+  if (useSnippets) {
+    item.insertText = `${func.name}($1)$0`;
+    item.insertTextFormat = InsertTextFormat.Snippet;
+  } else {
+    item.insertText = `${func.name}()`;
+    item.insertTextFormat = InsertTextFormat.PlainText;
+  }
 
   // Build documentation
   const docParts: string[] = [];
@@ -136,14 +146,22 @@ function createFormatCompletion(
  */
 function createTableFunctionCompletion(
   tableFunc: TableFunctionInfo,
+  useSnippets: boolean,
 ): CompletionItem {
   const item: CompletionItem = {
     label: tableFunc.name,
     kind: CompletionItemKind.Function,
     detail: '(table function)',
-    insertText: `${tableFunc.name}($1)$0`,
-    insertTextFormat: InsertTextFormat.Snippet,
   };
+
+  // Use snippet format if client supports it, otherwise plain text with parens
+  if (useSnippets) {
+    item.insertText = `${tableFunc.name}($1)$0`;
+    item.insertTextFormat = InsertTextFormat.Snippet;
+  } else {
+    item.insertText = `${tableFunc.name}()`;
+    item.insertTextFormat = InsertTextFormat.PlainText;
+  }
 
   if (tableFunc.description) {
     item.documentation = {
@@ -186,12 +204,30 @@ function createSettingCompletion(
  */
 let cachedCompletions: CompletionItem[] | null = null;
 let cachedDataVersion: string | null = null;
+// Note: cachedUseSnippets is declared with generateCompletionItems for proximity
+
+/**
+ * Options for generating completion items.
+ */
+export interface CompletionOptions {
+  /** Whether the client supports snippet format (default: true for backward compat) */
+  useSnippets?: boolean;
+}
+
+let cachedUseSnippets: boolean | null = null;
 
 export function generateCompletionItems(
   data: ClickHouseData,
+  options: CompletionOptions = {},
 ): CompletionItem[] {
-  // Return cached completions if data version matches
-  if (cachedCompletions && cachedDataVersion === data.version) {
+  const useSnippets = options.useSnippets ?? true;
+
+  // Return cached completions if data version and snippet setting match
+  if (
+    cachedCompletions &&
+    cachedDataVersion === data.version &&
+    cachedUseSnippets === useSnippets
+  ) {
     return cachedCompletions;
   }
 
@@ -199,7 +235,7 @@ export function generateCompletionItems(
 
   // Add functions (highest priority - most commonly used)
   for (const func of data.functions) {
-    items.push(createFunctionCompletion(func));
+    items.push(createFunctionCompletion(func, useSnippets));
   }
 
   // Add keywords
@@ -226,7 +262,7 @@ export function generateCompletionItems(
 
   // Add table functions
   for (const tableFunc of data.tableFunctions) {
-    items.push(createTableFunctionCompletion(tableFunc));
+    items.push(createTableFunctionCompletion(tableFunc, useSnippets));
   }
 
   // Add settings
@@ -242,6 +278,7 @@ export function generateCompletionItems(
   // Cache the results
   cachedCompletions = items;
   cachedDataVersion = data.version;
+  cachedUseSnippets = useSnippets;
 
   return items;
 }
@@ -270,4 +307,5 @@ export function filterCompletions(
 export function clearCompletionCache(): void {
   cachedCompletions = null;
   cachedDataVersion = null;
+  cachedUseSnippets = null;
 }

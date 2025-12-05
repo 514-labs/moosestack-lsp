@@ -123,13 +123,31 @@ describe('completions', () => {
       assert.strictEqual(toUint32Func.kind, CompletionItemKind.Function); // non-aggregate
     });
 
-    it('creates function completions with snippet insert', () => {
+    it('creates function completions with snippet insert by default', () => {
       const items = generateCompletionItems(testData);
 
       const func = items.find((i) => i.label === 'count');
       assert.ok(func);
       assert.strictEqual(func.insertText, 'count($1)$0');
       assert.strictEqual(func.insertTextFormat, InsertTextFormat.Snippet);
+    });
+
+    it('creates function completions with snippet insert when useSnippets is true', () => {
+      const items = generateCompletionItems(testData, { useSnippets: true });
+
+      const func = items.find((i) => i.label === 'count');
+      assert.ok(func);
+      assert.strictEqual(func.insertText, 'count($1)$0');
+      assert.strictEqual(func.insertTextFormat, InsertTextFormat.Snippet);
+    });
+
+    it('creates function completions with plain text when useSnippets is false', () => {
+      const items = generateCompletionItems(testData, { useSnippets: false });
+
+      const func = items.find((i) => i.label === 'count');
+      assert.ok(func);
+      assert.strictEqual(func.insertText, 'count()');
+      assert.strictEqual(func.insertTextFormat, InsertTextFormat.PlainText);
     });
 
     it('creates keyword completions', () => {
@@ -178,13 +196,23 @@ describe('completions', () => {
       assert.ok(jsonFormat.detail?.includes('input/output'));
     });
 
-    it('creates table function completions', () => {
+    it('creates table function completions with snippets by default', () => {
       const items = generateCompletionItems(testData);
 
       const fileFunc = items.find((i) => i.label === 'file');
       assert.ok(fileFunc);
       assert.strictEqual(fileFunc.kind, CompletionItemKind.Function);
       assert.strictEqual(fileFunc.insertText, 'file($1)$0');
+      assert.strictEqual(fileFunc.insertTextFormat, InsertTextFormat.Snippet);
+    });
+
+    it('creates table function completions with plain text when useSnippets is false', () => {
+      const items = generateCompletionItems(testData, { useSnippets: false });
+
+      const fileFunc = items.find((i) => i.label === 'file');
+      assert.ok(fileFunc);
+      assert.strictEqual(fileFunc.insertText, 'file()');
+      assert.strictEqual(fileFunc.insertTextFormat, InsertTextFormat.PlainText);
     });
 
     it('creates setting completions', () => {
@@ -220,6 +248,20 @@ describe('completions', () => {
       const items2 = generateCompletionItems(newData);
 
       assert.notStrictEqual(items1, items2); // Different reference
+    });
+
+    it('regenerates when snippet option changes', () => {
+      const items1 = generateCompletionItems(testData, { useSnippets: true });
+      const items2 = generateCompletionItems(testData, { useSnippets: false });
+
+      assert.notStrictEqual(items1, items2); // Different reference
+    });
+
+    it('caches when snippet option is same', () => {
+      const items1 = generateCompletionItems(testData, { useSnippets: true });
+      const items2 = generateCompletionItems(testData, { useSnippets: true });
+
+      assert.strictEqual(items1, items2); // Same reference = cached
     });
   });
 
