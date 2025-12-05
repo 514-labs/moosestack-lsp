@@ -29,8 +29,8 @@
   "scripts": {
     "build": "tsup",
     "watch": "tsup --watch",
-    "test": "node --test dist/**/*.test.js",
-    "test:coverage": "c8 --reporter=text --reporter=lcov node --test dist/**/*.test.js",
+    "test": "node --test 'dist/**/*.test.js'",
+    "test:coverage": "c8 --reporter=text --reporter=lcov node --test 'dist/**/*.test.js'",
     "clean": "rm -rf dist coverage"
   },
   "dependencies": {
