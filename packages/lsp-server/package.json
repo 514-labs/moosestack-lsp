@@ -1,0 +1,47 @@
+{
+  "name": "@514labs/moose-lsp",
+  "version": "0.1.0",
+  "description": "SQL Language Server for Moose TypeScript projects",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/514-labs/moosestack-lsp.git",
+    "directory": "packages/lsp-server"
+  },
+  "keywords": [
+    "lsp",
+    "language-server",
+    "sql",
+    "moose",
+    "clickhouse",
+    "typescript"
+  ],
+  "main": "dist/server.js",
+  "bin": {
+    "moosestack-lsp": "./dist/server.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "watch": "tsup --watch",
+    "test": "node --test dist/**/*.test.js",
+    "test:coverage": "c8 --reporter=text --reporter=lcov node --test dist/**/*.test.js",
+    "clean": "rm -rf dist coverage"
+  },
+  "dependencies": {
+    "@514labs/moose-sql-validator-wasm": "workspace:*",
+    "glob": "^10.3.10",
+    "typescript": "^5.3.0",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "tsup": "^8.5.1"
+  }
+}

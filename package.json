@@ -1,0 +1,33 @@
+{
+  "name": "moosestack-lsp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SQL Language Server for Moose TypeScript projects",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/514-labs/moosestack-lsp.git"
+  },
+  "license": "MIT",
+  "packageManager": "pnpm@9.9.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "test:coverage": "pnpm -r test:coverage",
+    "clean": "pnpm -r clean",
+    "lint": "biome check . && cargo clippy --all-targets --workspace",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.8",
+    "c8": "^10.1.2",
+    "husky": "^9.1.7",
+    "lint-staged": "16.2.7",
+    "typescript": "^5.3.0"
+  },
+  "lint-staged": {
+    "*.rs": "rustfmt --edition 2021",
+    "**/*.{ts,tsx,js,jsx,json,md}": "biome check --write --no-errors-on-unmatched"
+  }
+}

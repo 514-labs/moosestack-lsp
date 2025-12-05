@@ -1,0 +1,95 @@
+name: Release to NPM
+
+on:
+  push:
+    branches:
+      - main # Only run on main branch
+    paths:
+      - ".github/workflows/release.yaml"
+      - "packages/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "biome.json"
+
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        type: boolean
+        description: "Run the release in dry-run mode"
+        required: true
+        default: true
+
+jobs:
+  version:
+    concurrency: release
+    if: ${{ ! contains(github.event.head_commit.message , '[no-release]') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: "write"
+      id-token: "write"
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Get Version
+        id: version
+        run: |
+          # Use version from lsp-server package (the main publishable package)
+          VERSION=$(node -p "require('./packages/lsp-server/package.json').version")
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Release Version: ${VERSION}"
+
+      - name: Create Release/Tag
+        uses: ncipollo/release-action@v1
+        if: ${{ !inputs.dry-run }}
+        with:
+          tag: v${{ steps.version.outputs.VERSION }}
+          generateReleaseNotes: true
+          commit: ${{ github.sha }}
+          token: ${{ secrets.RELEASE_PAT }}
+
+  publish-npm:
+    name: Publish to NPM
+    runs-on: ubuntu-latest
+    if: ${{ !inputs.dry-run }}
+    needs:
+      - version
+    permissions:
+      contents: "read"
+      id-token: "write"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.9.0
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+
+      - name: Publish to NPM
+        shell: bash
+        run: ./scripts/release.sh ${{ needs.version.outputs.version }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

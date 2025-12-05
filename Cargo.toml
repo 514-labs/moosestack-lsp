@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = [
+    "packages/sql-validator",
+]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+opt-level = "s"     # Optimize for size (important for WASM)
+lto = true          # Link-time optimization
