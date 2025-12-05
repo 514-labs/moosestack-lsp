@@ -134,12 +134,12 @@ function applyIndentation(
 
   // Add leading newline if original had one
   if (hasLeadingNewline) {
-    result = '\n' + result;
+    result = `\n${result}`;
   }
 
   // Add trailing newline and indentation if original had it
   if (hasTrailingNewline) {
-    result = result + '\n' + trailingIndent;
+    result = `${result}\n${trailingIndent}`;
   }
 
   return result;

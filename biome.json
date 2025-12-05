@@ -32,6 +32,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "ignoreUnknown": true
+    "ignoreUnknown": true,
+    "maxSize": 3145728
   }
 }

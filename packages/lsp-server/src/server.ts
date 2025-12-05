@@ -4,6 +4,8 @@ import {
   type CodeAction,
   CodeActionKind,
   type CodeActionParams,
+  type CompletionItem,
+  type CompletionParams,
   createConnection,
   type InitializeParams,
   type InitializeResult,
@@ -13,10 +15,17 @@ import {
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import {
+  type ClickHouseData,
+  getAvailableVersions,
+  loadClickHouseData,
+} from './clickhouseData';
+import { detectClickHouseVersion } from './clickhouseVersion';
+import {
   createFormatSqlEdit,
   findSqlTemplateAtPosition,
   findTemplateNodeById,
 } from './codeActions';
+import { filterCompletions, generateCompletionItems } from './completions';
 import { createLocationDiagnostic } from './diagnostics';
 import { detectMooseProject } from './projectDetector';
 import { shouldValidateFile, validateSqlLocations } from './serverLogic';
@@ -31,6 +40,8 @@ const documents = new TextDocuments(TextDocument);
 
 let mooseProjectRoot: string | null = null;
 let tsService: TypeScriptService | null = null;
+let clickhouseData: ClickHouseData | null = null;
+let clientSupportsSnippets = false;
 
 // Debounce timers for as-you-type validation
 const validationTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -144,8 +155,62 @@ function performInitialScan(): void {
   }
 }
 
+/**
+ * Loads ClickHouse completion data based on detected version.
+ * Falls back to latest available version if detection fails.
+ */
+async function loadClickHouseCompletionData(
+  projectRoot: string,
+): Promise<void> {
+  try {
+    // Try to detect version from docker-compose
+    let version = await detectClickHouseVersion(projectRoot);
+
+    if (version) {
+      connection.console.log(`Detected ClickHouse version: ${version}`);
+    } else {
+      // Fall back to latest available version
+      const available = getAvailableVersions();
+      if (available.length > 0) {
+        version = available[0]; // Already sorted descending
+        connection.console.log(
+          `No ClickHouse version detected, using latest: ${version}`,
+        );
+      } else {
+        connection.console.warn('No ClickHouse data files available');
+        return;
+      }
+    }
+
+    clickhouseData = await loadClickHouseData(version);
+
+    if (clickhouseData.warning) {
+      connection.console.warn(clickhouseData.warning);
+    }
+
+    connection.console.log(
+      `Loaded ClickHouse data: ${clickhouseData.functions.length} functions, ${clickhouseData.keywords.length} keywords`,
+    );
+  } catch (error) {
+    if (error instanceof Error) {
+      connection.console.error(
+        `Failed to load ClickHouse data: ${error.message}`,
+      );
+    } else {
+      connection.console.error(`Failed to load ClickHouse data: ${error}`);
+    }
+  }
+}
+
 connection.onInitialize(
   async (params: InitializeParams): Promise<InitializeResult> => {
+    // Check if client supports snippet completions
+    clientSupportsSnippets =
+      params.capabilities.textDocument?.completion?.completionItem
+        ?.snippetSupport ?? false;
+
+    connection.console.log(`Client snippet support: ${clientSupportsSnippets}`);
+
     const workspaceRoot = params.rootUri
       ? new URL(params.rootUri).pathname
       : null;
@@ -176,6 +241,9 @@ connection.onInitialize(
             // Perform initial full-project scan
             performInitialScan();
           }
+
+          // Load ClickHouse completion data
+          await loadClickHouseCompletionData(mooseProjectRoot);
         } else {
           connection.console.log('No Moose project detected in workspace');
         }
@@ -195,6 +263,10 @@ connection.onInitialize(
         },
         codeActionProvider: {
           codeActionKinds: ['source.formatSql'],
+        },
+        completionProvider: {
+          triggerCharacters: ['.', '(', ' '],
+          resolveProvider: false,
         },
       },
     };
@@ -303,6 +375,56 @@ connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
         },
       },
     ];
+  } catch {
+    return [];
+  }
+});
+
+// Completion handler - provides SQL completions inside sql template literals
+connection.onCompletion((params: CompletionParams): CompletionItem[] => {
+  if (!tsService?.isHealthy() || !mooseProjectRoot || !clickhouseData) {
+    return [];
+  }
+
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return [];
+
+  const filePath = new URL(params.textDocument.uri).pathname;
+  if (!shouldValidateFile(filePath, mooseProjectRoot)) return [];
+
+  try {
+    const sourceFile = tsService.getSourceFile(filePath);
+    if (!sourceFile) return [];
+
+    const sqlLocations = extractSqlLocations(
+      sourceFile,
+      tsService.getTypeChecker(),
+    );
+
+    // Check if cursor is inside any SQL template
+    const location = findSqlTemplateAtPosition(
+      sqlLocations,
+      params.position.line,
+      params.position.character,
+    );
+
+    if (!location) return [];
+
+    // Get the current word prefix for filtering
+    const lineText = document.getText({
+      start: { line: params.position.line, character: 0 },
+      end: params.position,
+    });
+
+    // Find the word being typed (alphanumeric + underscore)
+    const wordMatch = lineText.match(/[\w]+$/);
+    const prefix = wordMatch ? wordMatch[0] : '';
+
+    // Generate and filter completions
+    const allCompletions = generateCompletionItems(clickhouseData, {
+      useSnippets: clientSupportsSnippets,
+    });
+    return filterCompletions(allCompletions, prefix);
   } catch {
     return [];
   }
