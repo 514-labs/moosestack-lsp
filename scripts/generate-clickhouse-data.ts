@@ -1,0 +1,436 @@
+#!/usr/bin/env npx tsx
+/**
+ * Generates ClickHouse data JSON files by querying system tables
+ * from a ClickHouse Docker container.
+ *
+ * Usage: npx tsx scripts/generate-clickhouse-data.ts <version>
+ * Example: npx tsx scripts/generate-clickhouse-data.ts 25.8
+ */
+
+import { execSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+const CONTAINER_NAME_PREFIX = 'clickhouse-data-extractor';
+const MAX_RETRIES = 60;
+const RETRY_DELAY_MS = 1000;
+
+interface ExtractionResult {
+  version: string;
+  extractedAt: string;
+  functions: FunctionInfo[];
+  keywords: string[];
+  dataTypes: DataTypeInfo[];
+  tableEngines: TableEngineInfo[];
+  formats: FormatInfo[];
+  tableFunctions: TableFunctionInfo[];
+  aggregateCombinators: string[];
+  settings: SettingInfo[];
+  mergeTreeSettings: SettingInfo[];
+}
+
+interface FunctionInfo {
+  name: string;
+  isAggregate: boolean;
+  caseInsensitive: boolean;
+  aliasTo: string | null;
+  syntax: string;
+  description: string;
+  arguments: string;
+  returnedValue: string;
+  examples: string;
+  categories: string;
+}
+
+interface DataTypeInfo {
+  name: string;
+  caseInsensitive: boolean;
+  aliasTo: string | null;
+}
+
+interface TableEngineInfo {
+  name: string;
+  supportsSettings: boolean;
+  supportsSkippingIndices: boolean;
+  supportsProjections: boolean;
+  supportsSortOrder: boolean;
+  supportsTTL: boolean;
+  supportsReplication: boolean;
+  supportsDeduplication: boolean;
+  supportsParallelInsert: boolean;
+}
+
+interface FormatInfo {
+  name: string;
+  isInput: boolean;
+  isOutput: boolean;
+}
+
+interface TableFunctionInfo {
+  name: string;
+  description: string;
+}
+
+interface SettingInfo {
+  name: string;
+  type: string;
+  description: string;
+}
+
+function getContainerName(version: string): string {
+  return `${CONTAINER_NAME_PREFIX}-${version.replace(/\./g, '-')}`;
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function execCommand(command: string): string {
+  try {
+    return execSync(command, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      maxBuffer: 50 * 1024 * 1024, // 50MB buffer for large outputs
+    }).trim();
+  } catch (error) {
+    const execError = error as { stderr?: Buffer; stdout?: Buffer };
+    throw new Error(
+      `Command failed: ${command}\n${execError.stderr?.toString() || execError.stdout?.toString() || 'Unknown error'}`,
+    );
+  }
+}
+
+function removeContainer(containerName: string): void {
+  try {
+    execCommand(`docker rm -f ${containerName}`);
+    console.log(`Removed existing container: ${containerName}`);
+  } catch {
+    // Container doesn't exist, that's fine
+  }
+}
+
+async function startContainer(version: string): Promise<string> {
+  const containerName = getContainerName(version);
+  const image = `clickhouse/clickhouse-server:${version}`;
+
+  // Always remove existing container first for clean state
+  removeContainer(containerName);
+
+  console.log(`Pulling image: ${image}`);
+  execCommand(`docker pull ${image}`);
+
+  console.log(`Starting container: ${containerName}`);
+  execCommand(`docker run -d --name ${containerName} ${image}`);
+
+  return containerName;
+}
+
+async function waitForHealthy(containerName: string): Promise<void> {
+  console.log(`Waiting for container ${containerName} to be healthy...`);
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const result = execCommand(
+        `docker exec ${containerName} clickhouse-client --query "SELECT 1"`,
+      );
+      if (result === '1') {
+        console.log('Container is healthy!');
+        return;
+      }
+    } catch {
+      // Not ready yet
+    }
+    await sleep(RETRY_DELAY_MS);
+    if ((attempt + 1) % 10 === 0) {
+      console.log(`Still waiting... (attempt ${attempt + 1}/${MAX_RETRIES})`);
+    }
+  }
+
+  throw new Error(
+    `Container ${containerName} did not become healthy after ${MAX_RETRIES} attempts`,
+  );
+}
+
+function stopContainer(containerName: string): void {
+  console.log(`Stopping container: ${containerName}`);
+  try {
+    execCommand(`docker stop ${containerName}`);
+    execCommand(`docker rm ${containerName}`);
+    console.log(`Container ${containerName} stopped and removed`);
+  } catch (error) {
+    console.warn(`Warning: Failed to stop/remove container: ${error}`);
+  }
+}
+
+function runQuery<T>(containerName: string, query: string): T {
+  const result = execCommand(
+    `docker exec ${containerName} clickhouse-client --query "${query.replace(/"/g, '\\"')}" --format JSON`,
+  );
+  const parsed = JSON.parse(result);
+  return parsed.data as T;
+}
+
+async function extractData(version: string): Promise<ExtractionResult> {
+  const containerName = await startContainer(version);
+
+  try {
+    await waitForHealthy(containerName);
+
+    console.log('Extracting data from system tables...');
+
+    // Extract functions
+    console.log('  - system.functions');
+    const rawFunctions = runQuery<
+      Array<{
+        name: string;
+        is_aggregate: number;
+        case_insensitive: number;
+        alias_to: string;
+        syntax: string;
+        description: string;
+        arguments: string;
+        returned_value: string;
+        examples: string;
+        categories: string;
+      }>
+    >(
+      containerName,
+      'SELECT name, is_aggregate, case_insensitive, alias_to, syntax, description, arguments, returned_value, examples, categories FROM system.functions ORDER BY name',
+    );
+
+    const functions: FunctionInfo[] = rawFunctions.map((f) => ({
+      name: f.name,
+      isAggregate: f.is_aggregate === 1,
+      caseInsensitive: f.case_insensitive === 1,
+      aliasTo: f.alias_to || null,
+      syntax: f.syntax,
+      description: f.description,
+      arguments: f.arguments,
+      returnedValue: f.returned_value,
+      examples: f.examples,
+      categories: f.categories,
+    }));
+
+    // Extract keywords
+    console.log('  - system.keywords');
+    const rawKeywords = runQuery<Array<{ keyword: string }>>(
+      containerName,
+      'SELECT keyword FROM system.keywords ORDER BY keyword',
+    );
+    const keywords = rawKeywords.map((k) => k.keyword);
+
+    // Extract data types
+    console.log('  - system.data_type_families');
+    const rawDataTypes = runQuery<
+      Array<{
+        name: string;
+        case_insensitive: number;
+        alias_to: string;
+      }>
+    >(
+      containerName,
+      'SELECT name, case_insensitive, alias_to FROM system.data_type_families ORDER BY name',
+    );
+
+    const dataTypes: DataTypeInfo[] = rawDataTypes.map((d) => ({
+      name: d.name,
+      caseInsensitive: d.case_insensitive === 1,
+      aliasTo: d.alias_to || null,
+    }));
+
+    // Extract table engines
+    console.log('  - system.table_engines');
+    const rawEngines = runQuery<
+      Array<{
+        name: string;
+        supports_settings: number;
+        supports_skipping_indices: number;
+        supports_projections: number;
+        supports_sort_order: number;
+        supports_ttl: number;
+        supports_replication: number;
+        supports_deduplication: number;
+        supports_parallel_insert: number;
+      }>
+    >(containerName, 'SELECT * FROM system.table_engines ORDER BY name');
+
+    const tableEngines: TableEngineInfo[] = rawEngines.map((e) => ({
+      name: e.name,
+      supportsSettings: e.supports_settings === 1,
+      supportsSkippingIndices: e.supports_skipping_indices === 1,
+      supportsProjections: e.supports_projections === 1,
+      supportsSortOrder: e.supports_sort_order === 1,
+      supportsTTL: e.supports_ttl === 1,
+      supportsReplication: e.supports_replication === 1,
+      supportsDeduplication: e.supports_deduplication === 1,
+      supportsParallelInsert: e.supports_parallel_insert === 1,
+    }));
+
+    // Extract formats
+    console.log('  - system.formats');
+    const rawFormats = runQuery<
+      Array<{
+        name: string;
+        is_input: number;
+        is_output: number;
+      }>
+    >(
+      containerName,
+      'SELECT name, is_input, is_output FROM system.formats ORDER BY name',
+    );
+
+    const formats: FormatInfo[] = rawFormats.map((f) => ({
+      name: f.name,
+      isInput: f.is_input === 1,
+      isOutput: f.is_output === 1,
+    }));
+
+    // Extract table functions
+    console.log('  - system.table_functions');
+    const rawTableFunctions = runQuery<
+      Array<{
+        name: string;
+        description: string;
+      }>
+    >(
+      containerName,
+      'SELECT name, description FROM system.table_functions ORDER BY name',
+    );
+
+    const tableFunctions: TableFunctionInfo[] = rawTableFunctions.map((f) => ({
+      name: f.name,
+      description: f.description,
+    }));
+
+    // Extract aggregate function combinators
+    console.log('  - system.aggregate_function_combinators');
+    const rawCombinators = runQuery<Array<{ name: string }>>(
+      containerName,
+      'SELECT name FROM system.aggregate_function_combinators WHERE is_internal = 0 ORDER BY name',
+    );
+    const aggregateCombinators = rawCombinators.map((c) => c.name);
+
+    // Extract settings
+    console.log('  - system.settings');
+    const rawSettings = runQuery<
+      Array<{
+        name: string;
+        type: string;
+        description: string;
+      }>
+    >(
+      containerName,
+      'SELECT name, type, description FROM system.settings ORDER BY name',
+    );
+
+    const settings: SettingInfo[] = rawSettings.map((s) => ({
+      name: s.name,
+      type: s.type,
+      description: s.description,
+    }));
+
+    // Extract merge tree settings
+    console.log('  - system.merge_tree_settings');
+    const rawMergeTreeSettings = runQuery<
+      Array<{
+        name: string;
+        type: string;
+        description: string;
+      }>
+    >(
+      containerName,
+      'SELECT name, type, description FROM system.merge_tree_settings ORDER BY name',
+    );
+
+    const mergeTreeSettings: SettingInfo[] = rawMergeTreeSettings.map((s) => ({
+      name: s.name,
+      type: s.type,
+      description: s.description,
+    }));
+
+    return {
+      version,
+      extractedAt: new Date().toISOString(),
+      functions,
+      keywords,
+      dataTypes,
+      tableEngines,
+      formats,
+      tableFunctions,
+      aggregateCombinators,
+      settings,
+      mergeTreeSettings,
+    };
+  } finally {
+    // Always cleanup container
+    stopContainer(containerName);
+  }
+}
+
+async function main() {
+  const version = process.argv[2];
+
+  if (!version) {
+    console.error(
+      'Usage: npx tsx scripts/generate-clickhouse-data.ts <version>',
+    );
+    console.error('Example: npx tsx scripts/generate-clickhouse-data.ts 25.8');
+    process.exit(1);
+  }
+
+  // Validate version format (should be like "25.6" or "25.8")
+  if (!/^\d+\.\d+(\.\d+)?$/.test(version)) {
+    console.error(`Invalid version format: ${version}`);
+    console.error('Expected format: XX.Y or XX.Y.Z (e.g., 25.6, 25.8, 25.8.1)');
+    process.exit(1);
+  }
+
+  // Normalize version to major.minor
+  const [major, minor] = version.split('.');
+  const normalizedVersion = `${major}.${minor}`;
+
+  console.log(
+    `\n=== Generating ClickHouse data for version ${normalizedVersion} ===\n`,
+  );
+
+  try {
+    const data = await extractData(normalizedVersion);
+
+    // Write output file
+    const outputDir = path.join(
+      __dirname,
+      '..',
+      'packages',
+      'lsp-server',
+      'src',
+      'data',
+    );
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+
+    const outputFile = path.join(
+      outputDir,
+      `clickhouse-${normalizedVersion}.json`,
+    );
+    fs.writeFileSync(outputFile, JSON.stringify(data, null, 2));
+
+    console.log(`\n=== Summary ===`);
+    console.log(`Version: ${data.version}`);
+    console.log(`Functions: ${data.functions.length}`);
+    console.log(`Keywords: ${data.keywords.length}`);
+    console.log(`Data Types: ${data.dataTypes.length}`);
+    console.log(`Table Engines: ${data.tableEngines.length}`);
+    console.log(`Formats: ${data.formats.length}`);
+    console.log(`Table Functions: ${data.tableFunctions.length}`);
+    console.log(`Aggregate Combinators: ${data.aggregateCombinators.length}`);
+    console.log(`Settings: ${data.settings.length}`);
+    console.log(`MergeTree Settings: ${data.mergeTreeSettings.length}`);
+    console.log(`\nOutput written to: ${outputFile}`);
+  } catch (error) {
+    console.error(`\nFailed to generate data: ${error}`);
+    process.exit(1);
+  }
+}
+
+main();
