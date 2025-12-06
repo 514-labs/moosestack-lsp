@@ -40,7 +40,7 @@ pub enum CompletionItemKind {
 }
 
 /// Completion item returned from Rust - domain data only
-/// TypeScript is responsible for mapping to LSP protocol (CompletionItem, InsertTextFormat, etc.)
+/// TypeScript is responsible for mapping to LSP protocol (`CompletionItem`, `InsertTextFormat`, etc.)
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct CompletionItem {
@@ -65,7 +65,7 @@ pub struct Documentation {
     pub value: String,
 }
 
-/// Function info from ClickHouse data
+/// Function info from `ClickHouse` data
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct FunctionInfo {
@@ -84,7 +84,7 @@ pub struct FunctionInfo {
     pub categories: String,
 }
 
-/// Data type info from ClickHouse data
+/// Data type info from `ClickHouse` data
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DataTypeInfo {
@@ -92,14 +92,14 @@ pub struct DataTypeInfo {
     pub alias_to: Option<String>,
 }
 
-/// Table engine info from ClickHouse data
+/// Table engine info from `ClickHouse` data
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct TableEngineInfo {
     pub name: String,
 }
 
-/// Format info from ClickHouse data
+/// Format info from `ClickHouse` data
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct FormatInfo {
@@ -108,7 +108,7 @@ pub struct FormatInfo {
     pub is_output: bool,
 }
 
-/// Table function info from ClickHouse data
+/// Table function info from `ClickHouse` data
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct TableFunctionInfo {
@@ -117,7 +117,7 @@ pub struct TableFunctionInfo {
     pub description: String,
 }
 
-/// Setting info from ClickHouse data
+/// Setting info from `ClickHouse` data
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingInfo {
@@ -128,7 +128,7 @@ pub struct SettingInfo {
     pub description: String,
 }
 
-/// Full ClickHouse data structure
+/// Full `ClickHouse` data structure
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ClickHouseData {
@@ -455,9 +455,8 @@ fn detect_context(sql: &str, cursor_offset: usize) -> SqlContext {
     };
 
     let dialect = ClickHouseDialect {};
-    let tokens = match Tokenizer::new(&dialect, sql_before_cursor).tokenize() {
-        Ok(t) => t,
-        Err(_) => return SqlContext::Default,
+    let Ok(tokens) = Tokenizer::new(&dialect, sql_before_cursor).tokenize() else {
+        return SqlContext::Default;
     };
 
     // Filter out whitespace for easier pattern matching
@@ -474,21 +473,19 @@ fn detect_context(sql: &str, cursor_offset: usize) -> SqlContext {
     let len = significant_tokens.len();
 
     // Check for ENGINE = pattern (last token is = or Eq, before that is ENGINE)
-    if len >= 2 {
-        if matches!(significant_tokens[len - 1], Token::Eq) {
-            if is_keyword_token(significant_tokens[len - 2], "ENGINE") {
-                return SqlContext::Engine;
-            }
-        }
+    if len >= 2
+        && matches!(significant_tokens[len - 1], Token::Eq)
+        && is_keyword_token(significant_tokens[len - 2], "ENGINE")
+    {
+        return SqlContext::Engine;
     }
 
     // Check for ENGINE = X pattern (we're typing the engine name after =)
-    if len >= 3 {
-        if matches!(significant_tokens[len - 2], Token::Eq)
-            && is_keyword_token(significant_tokens[len - 3], "ENGINE")
-        {
-            return SqlContext::Engine;
-        }
+    if len >= 3
+        && matches!(significant_tokens[len - 2], Token::Eq)
+        && is_keyword_token(significant_tokens[len - 3], "ENGINE")
+    {
+        return SqlContext::Engine;
     }
 
     // Check for ENGINE = X pattern (we're right after ENGINE =, starting to type)
@@ -528,69 +525,78 @@ fn detect_context(sql: &str, cursor_offset: usize) -> SqlContext {
         // Check for ORDER BY or GROUP BY
         if is_keyword_token(token, "BY") && i > 0 {
             let prev = significant_tokens[i - 1];
-            if is_keyword_token(prev, "ORDER") || is_keyword_token(prev, "GROUP") {
-                if !has_clause_after(
+            if (is_keyword_token(prev, "ORDER") || is_keyword_token(prev, "GROUP"))
+                && !has_clause_after(
                     &significant_tokens[i + 1..],
                     &["LIMIT", "FORMAT", "SETTINGS", "HAVING", "WHERE"],
-                ) {
-                    return SqlContext::OrderByClause;
-                }
+                )
+            {
+                return SqlContext::OrderByClause;
             }
         }
 
         // Check for FROM or JOIN
-        if is_keyword_token(token, "FROM") || is_keyword_token(token, "JOIN") {
-            if !has_clause_after(
+        if (is_keyword_token(token, "FROM") || is_keyword_token(token, "JOIN"))
+            && !has_clause_after(
                 &significant_tokens[i + 1..],
                 &["WHERE", "GROUP", "ORDER", "LIMIT", "FORMAT", "SETTINGS"],
-            ) {
-                return SqlContext::FromClause;
-            }
+            )
+        {
+            return SqlContext::FromClause;
         }
 
         // Check for SELECT (and no FROM yet)
-        if is_keyword_token(token, "SELECT") {
-            if !has_clause_after(&significant_tokens[i + 1..], &["FROM"]) {
-                return SqlContext::SelectClause;
-            }
+        if is_keyword_token(token, "SELECT")
+            && !has_clause_after(&significant_tokens[i + 1..], &["FROM"])
+        {
+            return SqlContext::SelectClause;
         }
 
         // Check for CREATE TABLE ... ( pattern for column definitions
-        if matches!(token, Token::LParen) && i >= 2 {
-            // Look back for CREATE TABLE pattern
-            let mut found_table = false;
-            let mut found_create = false;
-            for j in (0..i).rev() {
-                if is_keyword_token(significant_tokens[j], "TABLE") {
-                    found_table = true;
-                } else if is_keyword_token(significant_tokens[j], "CREATE") && found_table {
-                    found_create = true;
-                    break;
-                }
-            }
-            if found_create && found_table {
-                // Make sure we haven't closed the paren
-                let mut paren_depth = 1;
-                for tok in &significant_tokens[i + 1..] {
-                    match tok {
-                        Token::LParen => paren_depth += 1,
-                        Token::RParen => {
-                            paren_depth -= 1;
-                            if paren_depth == 0 {
-                                break;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                if paren_depth > 0 {
-                    return SqlContext::ColumnDefinition;
-                }
-            }
+        if matches!(token, Token::LParen)
+            && i >= 2
+            && is_in_create_table_columns(&significant_tokens, i)
+        {
+            return SqlContext::ColumnDefinition;
         }
     }
 
     SqlContext::Default
+}
+
+/// Check if we're inside CREATE TABLE column definitions
+fn is_in_create_table_columns(tokens: &[&Token], paren_index: usize) -> bool {
+    // Look back for CREATE TABLE pattern
+    let mut found_table = false;
+    let mut found_create = false;
+    for j in (0..paren_index).rev() {
+        if is_keyword_token(tokens[j], "TABLE") {
+            found_table = true;
+        } else if is_keyword_token(tokens[j], "CREATE") && found_table {
+            found_create = true;
+            break;
+        }
+    }
+
+    if !found_create || !found_table {
+        return false;
+    }
+
+    // Make sure we haven't closed the paren
+    let mut paren_depth = 1;
+    for tok in &tokens[paren_index + 1..] {
+        match tok {
+            Token::LParen => paren_depth += 1,
+            Token::RParen => {
+                paren_depth -= 1;
+                if paren_depth == 0 {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    paren_depth > 0
 }
 
 fn is_keyword_token(token: &Token, keyword: &str) -> bool {
@@ -610,7 +616,7 @@ pub struct InitResult {
 }
 
 /// Initialize completion data. Called once at startup.
-/// Takes ClickHouse data as JSON string.
+/// Takes `ClickHouse` data as JSON string.
 #[wasm_bindgen]
 pub fn init_completion_data(json: &str) -> String {
     let result = match serde_json::from_str::<ClickHouseData>(json) {
@@ -639,7 +645,7 @@ pub fn init_completion_data(json: &str) -> String {
 }
 
 /// Get completions for SQL at cursor position.
-/// Returns JSON array of CompletionItem objects.
+/// Returns JSON array of `CompletionItem` objects.
 #[wasm_bindgen]
 pub fn get_completions(sql: &str, cursor_offset: usize) -> String {
     let Some(cache) = COMPLETION_CACHE.get() else {
