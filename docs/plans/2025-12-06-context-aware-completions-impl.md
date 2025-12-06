@@ -1299,7 +1299,45 @@ git commit -m "chore: clean up deprecated TypeScript completion code"
 
 ---
 
-## Task 11: Final Verification
+## Task 11: Update README
+
+**Files:**
+- Modify: `README.md`
+
+**Step 1: Update the roadmap to mark context-aware completions as complete**
+
+Change the roadmap section:
+
+```markdown
+## Roadmap
+
+- [x] As-you-type validation
+- [x] SQL completions with intelligent sorting (functions, keywords, types, engines, formats)
+- [x] Hover documentation for ClickHouse functions and types
+- [x] ClickHouse version detection
+- [x] Context-aware completions (show only relevant items based on SQL context)
+- [ ] Python support
+- [ ] VS Code extension
+```
+
+**Step 2: Update features section to describe context-aware completions**
+
+Update the SQL completions feature bullet:
+
+```markdown
+- **SQL completions** - Context-aware auto-complete for ClickHouse functions, keywords, data types, table engines, formats, table functions, and settings. Shows only relevant completions based on SQL context (e.g., only table engines after `ENGINE =`)
+```
+
+**Step 3: Commit**
+
+```bash
+git add README.md
+git commit -m "docs: update README with context-aware completions"
+```
+
+---
+
+## Task 12: Final Verification
 
 **Step 1: Full build and test**
 
@@ -1320,3 +1358,4 @@ After completing all tasks:
 2. TypeScript passes ClickHouse data once at init, then calls Rust per request
 3. Context-aware completions for: ENGINE, FORMAT, WHERE, ORDER BY, GROUP BY, SELECT, FROM, SETTINGS, column definitions
 4. Falls back to all completions for unknown contexts
+5. README updated to document the new feature
