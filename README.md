@@ -18,12 +18,21 @@
 
 SQL Language Server for Moose TypeScript projects. Provides real-time SQL syntax validation for SQL strings embedded in `sql` tagged templates.
 
-## Features
+## Editor Features
 
-- **SQL syntax validation** - Validates `sql` tagged template literals on file open, save, and as you type
-- **SQL formatting** - Code action to format SQL strings (trigger via editor's code action menu)
-- **SQL completions** - Auto-complete for ClickHouse functions, keywords, data types, table engines, formats, table functions, and settings
-- **Hover documentation** - Hover over any ClickHouse function, keyword, or type to see documentation
+These features appear directly in your IDE when editing `sql` tagged template literals:
+
+| Feature | What You See in Your Editor |
+|---------|---------------------------|
+| **Error Diagnostics** | Red squiggly underlines on SQL syntax errors with error messages |
+| **Auto-Complete** | Popup suggestions for ClickHouse functions, keywords, data types, table engines, formats, and settings |
+| **Context-Aware Completions** | Only relevant completions based on cursor position (e.g., only table engines after `ENGINE =`, only formats after `FORMAT`) |
+| **Hover Documentation** | Tooltip with syntax, description, and examples when you hover over any ClickHouse function, keyword, or type |
+| **Code Actions** | "Format SQL" action available in your editor's quick-fix menu to auto-format SQL strings |
+| **Snippet Support** | Function completions insert with tab stops for parameters (e.g., `toHour($1)`) |
+
+## Additional Features
+
 - **ClickHouse dialect** - Uses the same SQL parser as the Moose CLI
 - **ClickHouse version awareness** - Detects your ClickHouse version from `docker-compose.yml` and provides version-appropriate completions
 - **Editor agnostic** - Works with any LSP-compatible editor (Neovim, VS Code, Zed, Helix, OpenCode, etc.)
@@ -206,7 +215,7 @@ moosestack-lsp/
 - [x] SQL completions with intelligent sorting (functions, keywords, types, engines, formats)
 - [x] Hover documentation for ClickHouse functions and types
 - [x] ClickHouse version detection
-- [ ] Context-aware completions (show only relevant items based on SQL context)
+- [x] Context-aware completions (show only relevant items based on SQL context)
 - [ ] Python support
 - [ ] VS Code extension
 

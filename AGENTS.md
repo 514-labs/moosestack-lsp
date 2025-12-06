@@ -35,6 +35,20 @@ pnpm lint:fix   # Auto-fix lint issues
 - **Biome**: Linting and formatting
 - **Node native test runner**: `node:test` for all tests
 
+## Architecture: Separation of Concerns
+
+**Rust/WASM layer** - Pure SQL domain logic:
+- SQL parsing, validation, context detection
+- Returns domain-level data (function names, categories, descriptions, whether something has parameters)
+- NO protocol-specific concepts (LSP types, numeric kind constants, snippet syntax)
+
+**TypeScript layer** - Protocol and integration:
+- LSP protocol communication (CompletionItem, InsertTextFormat, etc.)
+- Maps domain data from Rust to LSP-specific formats
+- Handles editor integration, file watching, project detection
+
+**Why this matters**: Keeping Rust focused on "what are valid SQL completions" and TypeScript on "how to present them via LSP" allows the Rust core to be reused for other integrations (CLI tools, other editors) without LSP coupling.
+
 ## Verification
 
 Always run before completing work:
