@@ -7,6 +7,8 @@ import {
   type CompletionItem,
   type CompletionParams,
   createConnection,
+  type Hover,
+  type HoverParams,
   type InitializeParams,
   type InitializeResult,
   ProposedFeatures,
@@ -27,6 +29,7 @@ import {
 } from './codeActions';
 import { filterCompletions, generateCompletionItems } from './completions';
 import { createLocationDiagnostic } from './diagnostics';
+import { createHoverContent, findHoverInfo, getWordAtPosition } from './hover';
 import { detectMooseProject } from './projectDetector';
 import { shouldValidateFile, validateSqlLocations } from './serverLogic';
 import { extractAllSqlLocations, extractSqlLocations } from './sqlExtractor';
@@ -268,6 +271,7 @@ connection.onInitialize(
           triggerCharacters: ['.', '(', ' '],
           resolveProvider: false,
         },
+        hoverProvider: true,
       },
     };
   },
@@ -427,6 +431,57 @@ connection.onCompletion((params: CompletionParams): CompletionItem[] => {
     return filterCompletions(allCompletions, prefix);
   } catch {
     return [];
+  }
+});
+
+// Hover handler - provides documentation on hover inside sql template literals
+connection.onHover((params: HoverParams): Hover | null => {
+  if (!tsService?.isHealthy() || !mooseProjectRoot || !clickhouseData) {
+    return null;
+  }
+
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return null;
+
+  const filePath = new URL(params.textDocument.uri).pathname;
+  if (!shouldValidateFile(filePath, mooseProjectRoot)) return null;
+
+  try {
+    const sourceFile = tsService.getSourceFile(filePath);
+    if (!sourceFile) return null;
+
+    const sqlLocations = extractSqlLocations(
+      sourceFile,
+      tsService.getTypeChecker(),
+    );
+
+    // Check if cursor is inside any SQL template
+    const location = findSqlTemplateAtPosition(
+      sqlLocations,
+      params.position.line,
+      params.position.character,
+    );
+
+    if (!location) return null;
+
+    // Get the full line text to extract word at cursor
+    const lineText = document.getText({
+      start: { line: params.position.line, character: 0 },
+      end: { line: params.position.line + 1, character: 0 },
+    });
+
+    const word = getWordAtPosition(lineText, params.position.character);
+    if (!word) return null;
+
+    // Look up hover info
+    const hoverInfo = findHoverInfo(word, clickhouseData);
+    if (!hoverInfo) return null;
+
+    return {
+      contents: createHoverContent(hoverInfo),
+    };
+  } catch {
+    return null;
   }
 });
 

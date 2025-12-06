@@ -13,6 +13,21 @@ import type {
 } from './clickhouseData';
 
 /**
+ * Sort priority prefixes for completion items.
+ * Lower values = higher priority (alphabetically sorted).
+ */
+const SortPriority = {
+  KEYWORD: '0_',
+  FUNCTION: '1_',
+  DATA_TYPE: '2_',
+  TABLE_ENGINE: '3_',
+  FORMAT: '4_',
+  TABLE_FUNCTION: '5_',
+  SETTING: '6_',
+  ALIAS: '9_', // Demoted aliases
+} as const;
+
+/**
  * Creates a completion item for a ClickHouse function.
  */
 function createFunctionCompletion(
@@ -66,10 +81,12 @@ function createFunctionCompletion(
     };
   }
 
-  // Lower sort priority for aliases
+  // Set sort priority - aliases are demoted
   if (func.aliasTo) {
-    item.sortText = `zzz_${func.name}`;
+    item.sortText = `${SortPriority.ALIAS}${func.name}`;
     item.detail = `(alias for ${func.aliasTo})`;
+  } else {
+    item.sortText = `${SortPriority.FUNCTION}${func.name}`;
   }
 
   return item;
@@ -83,8 +100,8 @@ function createKeywordCompletion(keyword: string): CompletionItem {
     label: keyword,
     kind: CompletionItemKind.Keyword,
     detail: '(keyword)',
-    // Keywords are typically uppercase in SQL
     insertText: keyword,
+    sortText: `${SortPriority.KEYWORD}${keyword}`,
   };
 }
 
@@ -98,9 +115,12 @@ function createDataTypeCompletion(dataType: DataTypeInfo): CompletionItem {
     detail: '(data type)',
   };
 
+  // Set sort priority - aliases are demoted
   if (dataType.aliasTo) {
     item.detail = `(alias for ${dataType.aliasTo})`;
-    item.sortText = `zzz_${dataType.name}`;
+    item.sortText = `${SortPriority.ALIAS}${dataType.name}`;
+  } else {
+    item.sortText = `${SortPriority.DATA_TYPE}${dataType.name}`;
   }
 
   return item;
@@ -114,6 +134,7 @@ function createTableEngineCompletion(engine: string): CompletionItem {
     label: engine,
     kind: CompletionItemKind.Class,
     detail: '(table engine)',
+    sortText: `${SortPriority.TABLE_ENGINE}${engine}`,
   };
 }
 
@@ -138,6 +159,7 @@ function createFormatCompletion(
     label: name,
     kind: CompletionItemKind.Constant,
     detail,
+    sortText: `${SortPriority.FORMAT}${name}`,
   };
 }
 
@@ -170,6 +192,8 @@ function createTableFunctionCompletion(
     };
   }
 
+  item.sortText = `${SortPriority.TABLE_FUNCTION}${tableFunc.name}`;
+
   return item;
 }
 
@@ -194,6 +218,8 @@ function createSettingCompletion(
       value: setting.description.trim(),
     };
   }
+
+  item.sortText = `${SortPriority.SETTING}${setting.name}`;
 
   return item;
 }

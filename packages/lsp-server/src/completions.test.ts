@@ -171,12 +171,32 @@ describe('completions', () => {
 
       const aliasFunc = items.find((i) => i.label === 'COUNT');
       assert.ok(aliasFunc);
-      assert.ok(aliasFunc.sortText?.startsWith('zzz_'));
+      assert.ok(aliasFunc.sortText?.startsWith('9_')); // ALIAS priority
       assert.ok(aliasFunc.detail?.includes('alias'));
 
       const bigintType = items.find((i) => i.label === 'BIGINT');
       assert.ok(bigintType);
-      assert.ok(bigintType.sortText?.startsWith('zzz_'));
+      assert.ok(bigintType.sortText?.startsWith('9_')); // ALIAS priority
+    });
+
+    it('sets correct priority order for completions', () => {
+      const items = generateCompletionItems(testData);
+
+      const keyword = items.find((i) => i.label === 'SELECT');
+      const func = items.find((i) => i.label === 'count');
+      const dataType = items.find((i) => i.label === 'UInt32');
+      const engine = items.find((i) => i.label === 'MergeTree');
+      const format = items.find((i) => i.label === 'JSON');
+      const tableFunc = items.find((i) => i.label === 'file');
+      const setting = items.find((i) => i.label === 'max_threads');
+
+      assert.ok(keyword?.sortText?.startsWith('0_')); // Keywords highest
+      assert.ok(func?.sortText?.startsWith('1_')); // Functions
+      assert.ok(dataType?.sortText?.startsWith('2_')); // Data types
+      assert.ok(engine?.sortText?.startsWith('3_')); // Table engines
+      assert.ok(format?.sortText?.startsWith('4_')); // Formats
+      assert.ok(tableFunc?.sortText?.startsWith('5_')); // Table functions
+      assert.ok(setting?.sortText?.startsWith('6_')); // Settings
     });
 
     it('creates table engine completions', () => {
