@@ -22,7 +22,10 @@ SQL Language Server for Moose TypeScript projects. Provides real-time SQL syntax
 
 - **SQL syntax validation** - Validates `sql` tagged template literals on file open, save, and as you type
 - **SQL formatting** - Code action to format SQL strings (trigger via editor's code action menu)
+- **SQL completions** - Auto-complete for ClickHouse functions, keywords, data types, table engines, formats, table functions, and settings
+- **Hover documentation** - Hover over any ClickHouse function, keyword, or type to see documentation
 - **ClickHouse dialect** - Uses the same SQL parser as the Moose CLI
+- **ClickHouse version awareness** - Detects your ClickHouse version from `docker-compose.yml` and provides version-appropriate completions
 - **Editor agnostic** - Works with any LSP-compatible editor (Neovim, VS Code, Zed, Helix, OpenCode, etc.)
 - **Monorepo support** - Automatically detects Moose projects in subdirectories
 - **Zero configuration** - Just install and it works
@@ -200,6 +203,10 @@ moosestack-lsp/
 ## Roadmap
 
 - [x] As-you-type validation
+- [x] SQL completions with intelligent sorting (functions, keywords, types, engines, formats)
+- [x] Hover documentation for ClickHouse functions and types
+- [x] ClickHouse version detection
+- [ ] Context-aware completions (show only relevant items based on SQL context)
 - [ ] Python support
 - [ ] VS Code extension
 
