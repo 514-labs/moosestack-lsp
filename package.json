@@ -14,8 +14,8 @@
     "test": "pnpm -r test",
     "test:coverage": "pnpm -r test:coverage",
     "clean": "pnpm -r clean",
-    "lint": "biome check . && cargo clippy --all-targets --workspace",
-    "lint:fix": "biome check --write .",
+    "lint": "biome check . && cargo clippy --all-targets --workspace -- -D warnings",
+    "lint:fix": "biome check --write . && cargo clippy --all-targets --workspace --fix --allow-dirty",
     "format": "biome format --write .",
     "prepare": "husky",
     "generate:clickhouse-data": "npx tsx scripts/generate-clickhouse-data.ts",
@@ -29,7 +29,10 @@
     "typescript": "^5.3.0"
   },
   "lint-staged": {
-    "*.rs": "rustfmt --edition 2021",
+    "*.rs": [
+      "rustfmt --edition 2021",
+      "bash scripts/lint-rust.sh"
+    ],
     "**/*.{ts,tsx,js,jsx,json,md}": "biome check --write --no-errors-on-unmatched"
   }
 }

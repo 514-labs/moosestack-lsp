@@ -1,14 +1,24 @@
 import * as path from 'node:path';
-import { initValidator, validateSql } from '@514labs/moose-sql-validator-wasm';
+import {
+  getCompletions,
+  initCompletionData,
+  initValidator,
+  type CompletionItem as RustCompletionItem,
+  validateSql,
+} from '@514labs/moose-sql-validator-wasm';
 import {
   type CodeAction,
   CodeActionKind,
   type CodeActionParams,
   type CompletionItem,
+  CompletionItemKind,
   type CompletionParams,
   createConnection,
+  type Hover,
+  type HoverParams,
   type InitializeParams,
   type InitializeResult,
+  InsertTextFormat,
   ProposedFeatures,
   TextDocumentSyncKind,
   TextDocuments,
@@ -25,8 +35,9 @@ import {
   findSqlTemplateAtPosition,
   findTemplateNodeById,
 } from './codeActions';
-import { filterCompletions, generateCompletionItems } from './completions';
+// completions.ts still used by tests but server uses Rust completions
 import { createLocationDiagnostic } from './diagnostics';
+import { createHoverContent, findHoverInfo, getWordAtPosition } from './hover';
 import { detectMooseProject } from './projectDetector';
 import { shouldValidateFile, validateSqlLocations } from './serverLogic';
 import { extractAllSqlLocations, extractSqlLocations } from './sqlExtractor';
@@ -156,7 +167,7 @@ function performInitialScan(): void {
 }
 
 /**
- * Loads ClickHouse completion data based on detected version.
+ * Loads ClickHouse completion data and initializes Rust completion engine.
  * Falls back to latest available version if detection fails.
  */
 async function loadClickHouseCompletionData(
@@ -186,6 +197,17 @@ async function loadClickHouseCompletionData(
 
     if (clickhouseData.warning) {
       connection.console.warn(clickhouseData.warning);
+    }
+
+    // Initialize Rust completion engine with the data
+    const jsonData = JSON.stringify(clickhouseData);
+    const initResult = initCompletionData(jsonData);
+
+    if (!initResult.success) {
+      connection.console.error(
+        `Failed to init completion data: ${initResult.error}`,
+      );
+      return;
     }
 
     connection.console.log(
@@ -268,6 +290,7 @@ connection.onInitialize(
           triggerCharacters: ['.', '(', ' '],
           resolveProvider: false,
         },
+        hoverProvider: true,
       },
     };
   },
@@ -380,7 +403,74 @@ connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
   }
 });
 
-// Completion handler - provides SQL completions inside sql template literals
+/**
+ * Maps domain-level completion kind from Rust to LSP CompletionItemKind.
+ * This maintains the architectural separation: Rust handles SQL domain logic,
+ * TypeScript handles LSP protocol mapping.
+ */
+function mapCompletionItemKind(
+  kind: RustCompletionItem['kind'],
+): CompletionItemKind {
+  switch (kind) {
+    case 'function':
+      return CompletionItemKind.Function;
+    case 'aggregate_function':
+      return CompletionItemKind.Method;
+    case 'table_function':
+      return CompletionItemKind.Function;
+    case 'keyword':
+      return CompletionItemKind.Keyword;
+    case 'data_type':
+      return CompletionItemKind.TypeParameter;
+    case 'table_engine':
+      return CompletionItemKind.Class;
+    case 'format':
+      return CompletionItemKind.Constant;
+    case 'setting':
+      return CompletionItemKind.Property;
+    default:
+      return CompletionItemKind.Text;
+  }
+}
+
+/**
+ * Converts a Rust CompletionItem to an LSP CompletionItem.
+ * Handles snippet generation based on hasParams and client capabilities.
+ */
+function toRustCompletionItem(
+  rustItem: RustCompletionItem,
+  useSnippets: boolean,
+): CompletionItem {
+  const kind = mapCompletionItemKind(rustItem.kind);
+
+  // Generate insertText based on hasParams and snippet support
+  let insertText: string | undefined;
+  let insertTextFormat: InsertTextFormat | undefined;
+
+  if (rustItem.hasParams) {
+    if (useSnippets) {
+      insertText = `${rustItem.label}($1)$0`;
+      insertTextFormat = InsertTextFormat.Snippet;
+    } else {
+      insertText = `${rustItem.label}()`;
+      insertTextFormat = InsertTextFormat.PlainText;
+    }
+  }
+
+  return {
+    label: rustItem.label,
+    kind,
+    detail: rustItem.detail,
+    documentation: rustItem.documentation
+      ? { kind: 'markdown' as const, value: rustItem.documentation.value }
+      : undefined,
+    insertText,
+    insertTextFormat,
+    sortText: rustItem.sortText,
+  };
+}
+
+// Completion handler - provides context-aware SQL completions inside sql template literals
 connection.onCompletion((params: CompletionParams): CompletionItem[] => {
   if (!tsService?.isHealthy() || !mooseProjectRoot || !clickhouseData) {
     return [];
@@ -410,23 +500,103 @@ connection.onCompletion((params: CompletionParams): CompletionItem[] => {
 
     if (!location) return [];
 
-    // Get the current word prefix for filtering
+    // Calculate cursor offset within the SQL template
+    const cursorLine = params.position.line;
+    const cursorChar = params.position.character;
+    const templateStartLine = location.line - 1; // Convert 1-indexed to 0-indexed
+    const templateStartChar = location.column - 1;
+
+    // Get the SQL text and calculate offset
+    const sqlText = location.templateText;
+    let cursorOffset = 0;
+
+    // Count characters from start of template to cursor position
+    const lines = sqlText.split('\n');
+    const relativeLine = cursorLine - templateStartLine;
+
+    for (let i = 0; i < relativeLine && i < lines.length; i++) {
+      cursorOffset += lines[i].length + 1; // +1 for newline
+    }
+
+    if (relativeLine === 0) {
+      cursorOffset += cursorChar - templateStartChar;
+    } else if (relativeLine < lines.length) {
+      cursorOffset += cursorChar;
+    }
+
+    // Clamp to valid range
+    cursorOffset = Math.max(0, Math.min(cursorOffset, sqlText.length));
+
+    // Get context-aware completions from Rust
+    const rustCompletions = getCompletions(sqlText, cursorOffset);
+
+    // Get prefix for filtering
     const lineText = document.getText({
       start: { line: params.position.line, character: 0 },
       end: params.position,
     });
-
-    // Find the word being typed (alphanumeric + underscore)
     const wordMatch = lineText.match(/[\w]+$/);
-    const prefix = wordMatch ? wordMatch[0] : '';
+    const prefix = wordMatch ? wordMatch[0].toLowerCase() : '';
 
-    // Generate and filter completions
-    const allCompletions = generateCompletionItems(clickhouseData, {
-      useSnippets: clientSupportsSnippets,
-    });
-    return filterCompletions(allCompletions, prefix);
+    // Convert to LSP CompletionItem format and filter by prefix
+    const completions: CompletionItem[] = rustCompletions
+      .filter((c) => !prefix || c.label.toLowerCase().startsWith(prefix))
+      .map((c) => toRustCompletionItem(c, clientSupportsSnippets));
+
+    return completions;
   } catch {
     return [];
+  }
+});
+
+// Hover handler - provides documentation on hover inside sql template literals
+connection.onHover((params: HoverParams): Hover | null => {
+  if (!tsService?.isHealthy() || !mooseProjectRoot || !clickhouseData) {
+    return null;
+  }
+
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return null;
+
+  const filePath = new URL(params.textDocument.uri).pathname;
+  if (!shouldValidateFile(filePath, mooseProjectRoot)) return null;
+
+  try {
+    const sourceFile = tsService.getSourceFile(filePath);
+    if (!sourceFile) return null;
+
+    const sqlLocations = extractSqlLocations(
+      sourceFile,
+      tsService.getTypeChecker(),
+    );
+
+    // Check if cursor is inside any SQL template
+    const location = findSqlTemplateAtPosition(
+      sqlLocations,
+      params.position.line,
+      params.position.character,
+    );
+
+    if (!location) return null;
+
+    // Get the full line text to extract word at cursor
+    const lineText = document.getText({
+      start: { line: params.position.line, character: 0 },
+      end: { line: params.position.line + 1, character: 0 },
+    });
+
+    const word = getWordAtPosition(lineText, params.position.character);
+    if (!word) return null;
+
+    // Look up hover info
+    const hoverInfo = findHoverInfo(word, clickhouseData);
+    if (!hoverInfo) return null;
+
+    return {
+      contents: createHoverContent(hoverInfo),
+    };
+  } catch {
+    return null;
   }
 });
 
