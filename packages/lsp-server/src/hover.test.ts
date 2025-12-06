@@ -130,7 +130,7 @@ describe('hover', () => {
 
     it('returns empty string when cursor is on punctuation', () => {
       const text = 'count()';
-      const word = getWordAtPosition(text, 6); // cursor on '(' (0-indexed: c=0,o=1,u=2,n=3,t=4,(=5,)=6)
+      const word = getWordAtPosition(text, 6); // cursor on ')' (0-indexed: c=0,o=1,u=2,n=3,t=4,(=5,)=6)
       assert.strictEqual(word, '');
     });
 
@@ -142,7 +142,7 @@ describe('hover', () => {
 
     it('handles cursor at exact end of word', () => {
       const text = 'SELECT count FROM';
-      const word = getWordAtPosition(text, 11); // cursor after 't' of count
+      const word = getWordAtPosition(text, 12); // cursor after 't' of count (on space)
       assert.strictEqual(word, 'count');
     });
   });

@@ -488,9 +488,8 @@ fn detect_context(sql: &str, cursor_offset: usize) -> SqlContext {
         return SqlContext::Engine;
     }
 
-    // Check for ENGINE = X pattern (we're right after ENGINE =, starting to type)
+    // Check if we're right after ENGINE keyword and = follows in remaining text
     if len >= 1 && is_keyword_token(significant_tokens[len - 1], "ENGINE") {
-        // Check if next non-whitespace in original is =
         let remaining = &sql[cursor_offset..];
         if remaining.trim_start().starts_with('=') {
             return SqlContext::Engine;

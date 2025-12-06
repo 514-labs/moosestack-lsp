@@ -54,15 +54,13 @@ export function getWordAtPosition(text: string, position: number): string {
   // Find word boundaries
   const wordPattern = /[\w]/;
 
-  // Check if cursor is on a word character
+  // Check if cursor is on a word character or just after one
   const charAtPos = text[position];
-  if (!charAtPos || !wordPattern.test(charAtPos)) {
-    // Check character before cursor (for end-of-word positions)
-    if (position > 0 && wordPattern.test(text[position - 1])) {
-      // Cursor is just after a word, include that word
-    } else {
-      return '';
-    }
+  const onWordChar = charAtPos && wordPattern.test(charAtPos);
+  const afterWordChar = position > 0 && wordPattern.test(text[position - 1]);
+
+  if (!onWordChar && !afterWordChar) {
+    return '';
   }
 
   // Find start of word
