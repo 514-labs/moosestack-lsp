@@ -49,6 +49,8 @@ These features appear directly in your IDE when editing `sql` tagged template li
 
 ### From Source (Current)
 
+**Build prerequisites:** [Rust](https://rustup.rs/), [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/), [pnpm](https://pnpm.io/)
+
 ```bash
 # Clone the repository
 git clone https://github.com/514-labs/moosestack-lsp.git
@@ -59,7 +61,8 @@ pnpm install
 pnpm build
 
 # Link globally
-pnpm link --global --filter @514labs/moose-lsp
+cd packages/lsp-server
+pnpm link --global
 ```
 
 ### From npm (Coming Soon after initial public release)
@@ -114,9 +117,31 @@ configs.moosestack = {
 lspconfig.moosestack.setup({})
 ```
 
-### VS Code
+### VS Code / Cursor
 
-Coming soon.
+Since Cursor is a VS Code fork, the same setup works for both editors.
+
+1. Install the [vscode-lspconfig](https://marketplace.visualstudio.com/items?itemName=whtsht.vscode-lspconfig) extension
+
+2. Add to your `settings.json` (Cmd+Shift+P → "Preferences: Open User Settings (JSON)"):
+
+```json
+{
+  "vscode-lspconfig.serverConfigurations": [
+    {
+      "name": "moosestack",
+      "document_selector": [
+        { "language": "typescript" },
+        { "language": "typescriptreact" }
+      ],
+      "root_patterns": ["package.json", "moose.config.toml"],
+      "command": ["moosestack-lsp", "--stdio"]
+    }
+  ]
+}
+```
+
+3. Reload the window (Cmd+Shift+P → "Developer: Reload Window")
 
 ### OpenCode
 
