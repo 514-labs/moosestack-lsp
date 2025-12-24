@@ -92,7 +92,7 @@ vim.api.nvim_create_autocmd("User", {
       configs.moosestack = {
         default_config = {
           cmd = { "moosestack-lsp", "--stdio" },
-          filetypes = { "typescript", "typescriptreact" },
+          filetypes = { "typescript" },
           root_dir = lspconfig.util.root_pattern("moose.config.toml", "package.json"),
         },
       }
@@ -176,7 +176,7 @@ moosestack-lsp/
 
 1. Check your editor's LSP logs to ensure the server is starting
 2. Verify your project has `@514labs/moose-lib` in `package.json` dependencies
-3. Ensure you're editing `.ts` files (`.tsx` not currently supported)
+3. Ensure you're editing `.ts` files
 4. Check that `tsconfig.json` exists in your project root
 
 ## Roadmap
