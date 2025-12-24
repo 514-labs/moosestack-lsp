@@ -101,7 +101,7 @@ jobs:
 
       - name: Publish @514labs/moose-lsp to npm
         run: |
-          cd packages/lsp-server
+          cd lsp-server
           npm version "${{ needs.build.outputs.version }}" --no-git-tag-version
           npm publish --access public
         env:
@@ -125,29 +125,29 @@ jobs:
 
       - name: Update extension version
         run: |
-          cd packages/vscode-extension
+          cd vscode-extension
           npm version "${{ needs.build.outputs.version }}" --no-git-tag-version
 
       - name: Prepare extension dependencies
         run: |
-          mkdir -p packages/vscode-extension/node_modules/@514labs
+          mkdir -p vscode-extension/node_modules/@514labs
 
           # Copy sql-validator-wasm
-          mkdir -p packages/vscode-extension/node_modules/@514labs/moose-sql-validator-wasm
-          cp packages/sql-validator-wasm/package.json packages/vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
-          cp -r packages/sql-validator-wasm/dist packages/vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
-          if [ -d packages/sql-validator-wasm/pkg ]; then
-            cp -r packages/sql-validator-wasm/pkg packages/vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
+          mkdir -p vscode-extension/node_modules/@514labs/moose-sql-validator-wasm
+          cp sql-validator-wasm/package.json vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
+          cp -r sql-validator-wasm/dist vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
+          if [ -d sql-validator-wasm/pkg ]; then
+            cp -r sql-validator-wasm/pkg vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
           fi
 
           # Copy lsp-server
-          mkdir -p packages/vscode-extension/node_modules/@514labs/moose-lsp
-          cp packages/lsp-server/package.json packages/vscode-extension/node_modules/@514labs/moose-lsp/
-          cp -r packages/lsp-server/dist packages/vscode-extension/node_modules/@514labs/moose-lsp/
+          mkdir -p vscode-extension/node_modules/@514labs/moose-lsp
+          cp lsp-server/package.json vscode-extension/node_modules/@514labs/moose-lsp/
+          cp -r lsp-server/dist vscode-extension/node_modules/@514labs/moose-lsp/
 
       - name: Package and publish to VS Code Marketplace
         run: |
-          cd packages/vscode-extension
+          cd vscode-extension
           npx @vscode/vsce package --no-dependencies
           npx @vscode/vsce publish --no-dependencies
         env:
