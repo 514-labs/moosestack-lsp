@@ -171,7 +171,10 @@ const SORT_PRIORITY_TABLE_FUNCTION: &str = "5_";
 const SORT_PRIORITY_SETTING: &str = "6_";
 const SORT_PRIORITY_ALIAS: &str = "9_";
 
-fn build_function_completion(func: &FunctionInfo) -> CompletionItem {
+fn build_function_completion(
+    func: &FunctionInfo,
+    all_functions: &[FunctionInfo],
+) -> CompletionItem {
     let kind = if func.is_aggregate {
         CompletionItemKind::AggregateFunction
     } else {
@@ -192,7 +195,29 @@ fn build_function_completion(func: &FunctionInfo) -> CompletionItem {
         format!("{SORT_PRIORITY_FUNCTION}{}", func.name)
     };
 
-    let documentation = build_function_documentation(func);
+    // For aliases, show "alias for X" header + target function's documentation
+    let documentation = if let Some(ref alias_to) = func.alias_to {
+        // Find the target function (case-insensitive)
+        let target = all_functions
+            .iter()
+            .find(|f| f.name.eq_ignore_ascii_case(alias_to));
+
+        let mut parts = vec![format!("**{}** _(alias for `{}`)_", func.name, alias_to)];
+
+        // Add target function's documentation if found
+        if let Some(target_func) = target {
+            if let Some(target_doc) = build_function_documentation(target_func) {
+                parts.push(target_doc.value);
+            }
+        }
+
+        Some(Documentation {
+            kind: "markdown".to_string(),
+            value: parts.join("\n\n"),
+        })
+    } else {
+        build_function_documentation(func)
+    };
 
     CompletionItem {
         label: func.name.clone(),
@@ -347,7 +372,7 @@ fn build_completion_cache(data: &ClickHouseData) -> CompletionCache {
 
     // Build function completions
     for func in &data.functions {
-        let item = build_function_completion(func);
+        let item = build_function_completion(func, &data.functions);
         cache.functions.push(item.clone());
         cache.all.push(item);
     }
