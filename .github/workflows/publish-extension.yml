@@ -102,7 +102,10 @@ jobs:
           mkdir -p packages/vscode-extension/node_modules/@514labs/moose-sql-validator-wasm
           cp packages/sql-validator-wasm/package.json packages/vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
           cp -r packages/sql-validator-wasm/dist packages/vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
-          cp -r packages/sql-validator-wasm/pkg packages/vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/ 2>/dev/null || true
+          # Note: the 'pkg' directory is only produced when building the WASM bindings; skip if it's not present.
+          if [ -d packages/sql-validator-wasm/pkg ]; then
+            cp -r packages/sql-validator-wasm/pkg packages/vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
+          fi
           
           # Copy lsp-server (main dependency)
           mkdir -p packages/vscode-extension/node_modules/@514labs/moose-lsp

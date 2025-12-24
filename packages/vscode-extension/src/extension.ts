@@ -7,6 +7,8 @@ import {
   TransportKind,
 } from 'vscode-languageclient/node';
 
+// Module-scoped LanguageClient shared between activate() and deactivate()
+// to allow VS Code to stop the client during extension deactivation.
 let client: LanguageClient | null = null;
 
 export function activate(context: vscode.ExtensionContext): void {
