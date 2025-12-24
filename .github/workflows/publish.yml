@@ -1,0 +1,154 @@
+name: Publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 0.1.0)'
+        required: true
+        type: string
+      publish-npm:
+        description: 'Publish @514labs/moose-lsp to npm'
+        required: false
+        type: boolean
+        default: true
+      publish-vscode:
+        description: 'Publish VS Code extension to marketplace'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.9.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build all packages
+        run: pnpm build
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${{ github.event.release.tag_name }}"
+            VERSION=${VERSION#v}
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Publishing version: ${VERSION}"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            packages/lsp-server/dist/
+            packages/lsp-server/package.json
+            packages/sql-validator-wasm/dist/
+            packages/sql-validator-wasm/pkg/
+            packages/sql-validator-wasm/package.json
+            packages/vscode-extension/
+          retention-days: 1
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+  publish-npm:
+    needs: build
+    if: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish-npm == 'true') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Publish @514labs/moose-lsp to npm
+        run: |
+          cd packages/lsp-server
+          npm version "${{ needs.build.outputs.version }}" --no-git-tag-version
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-vscode:
+    needs: build
+    if: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish-vscode == 'true') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Update extension version
+        run: |
+          cd packages/vscode-extension
+          npm version "${{ needs.build.outputs.version }}" --no-git-tag-version
+
+      - name: Prepare extension dependencies
+        run: |
+          mkdir -p packages/vscode-extension/node_modules/@514labs
+
+          # Copy sql-validator-wasm
+          mkdir -p packages/vscode-extension/node_modules/@514labs/moose-sql-validator-wasm
+          cp packages/sql-validator-wasm/package.json packages/vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
+          cp -r packages/sql-validator-wasm/dist packages/vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
+          if [ -d packages/sql-validator-wasm/pkg ]; then
+            cp -r packages/sql-validator-wasm/pkg packages/vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
+          fi
+
+          # Copy lsp-server
+          mkdir -p packages/vscode-extension/node_modules/@514labs/moose-lsp
+          cp packages/lsp-server/package.json packages/vscode-extension/node_modules/@514labs/moose-lsp/
+          cp -r packages/lsp-server/dist packages/vscode-extension/node_modules/@514labs/moose-lsp/
+
+      - name: Package and publish to VS Code Marketplace
+        run: |
+          cd packages/vscode-extension
+          npx @vscode/vsce package --no-dependencies
+          npx @vscode/vsce publish --no-dependencies
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}

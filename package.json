@@ -2,7 +2,7 @@
   "name": "moosestack-lsp",
   "version": "0.1.0",
   "private": true,
-  "description": "SQL Language Server for Moose TypeScript projects",
+  "description": "Language Server for Moose TypeScript projects",
   "repository": {
     "type": "git",
     "url": "https://github.com/514-labs/moosestack-lsp.git"

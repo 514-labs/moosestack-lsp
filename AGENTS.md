@@ -2,7 +2,7 @@
 
 ## What This Is
 
-SQL Language Server for Moose TypeScript projects. Validates SQL syntax in `sql` tagged template literals using a Rust-based ClickHouse SQL parser compiled to WASM.
+Language Server for Moose TypeScript projects. Currently provides SQL syntax validation for SQL strings embedded in `sql` tagged template literals using a Rust-based ClickHouse SQL parser compiled to WASM.
 
 ## Project Structure
 
