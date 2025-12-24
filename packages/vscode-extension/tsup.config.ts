@@ -9,6 +9,8 @@ export default defineConfig({
   splitting: false,
   bundle: true,
   external: ['vscode'],
+  // Force bundle vscode-languageclient (tsup might treat it as external due to "vscode-" prefix)
+  noExternal: ['vscode-languageclient'],
   platform: 'node',
   target: 'node18',
 });

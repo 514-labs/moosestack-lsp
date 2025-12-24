@@ -12,20 +12,10 @@ import {
 let client: LanguageClient | null = null;
 
 export function activate(context: vscode.ExtensionContext): void {
-  // The server is implemented in Node.js
-  // Resolve the server module path - works in both development and packaged extension
-  let serverModule: string;
-  try {
-    // Try to resolve from node_modules (packaged extension or workspace)
-    serverModule = require.resolve('@514labs/moose-lsp/dist/server.js', {
-      paths: [context.extensionPath],
-    });
-  } catch {
-    // Fallback: try relative to extension path
-    serverModule = context.asAbsolutePath(
-      path.join('node_modules', '@514labs', 'moose-lsp', 'dist', 'server.js'),
-    );
-  }
+  // The server is bundled in the server/ directory (not node_modules to avoid .gitignore issues)
+  const serverModule = context.asAbsolutePath(
+    path.join('server', '@514labs', 'moose-lsp', 'server.js'),
+  );
 
   // Get debug port from configuration (default 6009)
   const debugPort = vscode.workspace
