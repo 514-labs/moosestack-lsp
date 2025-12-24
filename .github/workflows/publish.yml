@@ -19,6 +19,11 @@ on:
         required: false
         type: boolean
         default: true
+      publish-openvsx:
+        description: 'Publish to Open VSX (for Cursor)'
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   build:
@@ -145,13 +150,66 @@ jobs:
           cp lsp-server/package.json vscode-extension/node_modules/@514labs/moose-lsp/
           cp -r lsp-server/dist vscode-extension/node_modules/@514labs/moose-lsp/
 
-      - name: Install vsce
-        run: npm install -g @vscode/vsce
+      - name: Install vsce and ovsx
+        run: npm install -g @vscode/vsce ovsx
 
-      - name: Package and publish to VS Code Marketplace
+      - name: Package extension
         run: |
           cd vscode-extension
           vsce package --no-dependencies
+
+      - name: Publish to VS Code Marketplace
+        run: |
+          cd vscode-extension
           vsce publish --no-dependencies
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+  publish-openvsx:
+    needs: build
+    if: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish-openvsx == 'true') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Update extension version
+        run: |
+          cd vscode-extension
+          npm version "${{ needs.build.outputs.version }}" --no-git-tag-version
+
+      - name: Prepare extension dependencies
+        run: |
+          mkdir -p vscode-extension/node_modules/@514labs
+
+          # Copy sql-validator-wasm
+          mkdir -p vscode-extension/node_modules/@514labs/moose-sql-validator-wasm
+          cp sql-validator-wasm/package.json vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
+          cp -r sql-validator-wasm/dist vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
+          if [ -d sql-validator-wasm/pkg ]; then
+            cp -r sql-validator-wasm/pkg vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
+          fi
+
+          # Copy lsp-server
+          mkdir -p vscode-extension/node_modules/@514labs/moose-lsp
+          cp lsp-server/package.json vscode-extension/node_modules/@514labs/moose-lsp/
+          cp -r lsp-server/dist vscode-extension/node_modules/@514labs/moose-lsp/
+
+      - name: Install ovsx
+        run: npm install -g ovsx
+
+      - name: Package and publish to Open VSX
+        run: |
+          cd vscode-extension
+          npx vsce package --no-dependencies
+          ovsx publish *.vsix
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
