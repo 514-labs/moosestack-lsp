@@ -10,3 +10,5 @@ coverage/
 *.swp
 *.swo
 *~
+*.vsix
+server/

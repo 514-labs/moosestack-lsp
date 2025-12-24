@@ -6,21 +6,21 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish (e.g., 0.1.0)'
+        description: "Version to publish (e.g., 0.1.0)"
         required: true
         type: string
       publish-npm:
-        description: 'Publish @514labs/moose-lsp to npm'
+        description: "Publish @514labs/moose-lsp to npm"
         required: false
         type: boolean
         default: true
       publish-vscode:
-        description: 'Publish VS Code extension to marketplace'
+        description: "Publish VS Code extension to marketplace"
         required: false
         type: boolean
         default: true
       publish-openvsx:
-        description: 'Publish to Open VSX (for Cursor)'
+        description: "Publish to Open VSX (for Cursor)"
         required: false
         type: boolean
         default: true
@@ -135,22 +135,27 @@ jobs:
           cd vscode-extension
           npm version "${{ needs.build.outputs.version }}" --no-git-tag-version
 
-      - name: Prepare extension dependencies
+      - name: Prepare extension server bundle
         run: |
-          mkdir -p vscode-extension/node_modules/@514labs
+          # Use server/ directory instead of node_modules/ to avoid .gitignore issues
+          # The wasm package must be in node_modules relative to server.js for Node resolution
+          mkdir -p vscode-extension/server/@514labs/moose-lsp/node_modules/@514labs/moose-sql-validator-wasm
 
-          # Copy sql-validator-wasm
-          mkdir -p vscode-extension/node_modules/@514labs/moose-sql-validator-wasm
-          cp sql-validator-wasm/package.json vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
-          cp -r sql-validator-wasm/dist vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
-          if [ -d sql-validator-wasm/pkg ]; then
-            cp -r sql-validator-wasm/pkg vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
-          fi
+          # Copy bundled lsp-server (dependencies are bundled in server.js)
+          cp lsp-server/dist/server.js vscode-extension/server/@514labs/moose-lsp/
+          cp lsp-server/dist/server.js.map vscode-extension/server/@514labs/moose-lsp/
+          cp -r lsp-server/dist/data vscode-extension/server/@514labs/moose-lsp/
 
-          # Copy lsp-server
-          mkdir -p vscode-extension/node_modules/@514labs/moose-lsp
-          cp lsp-server/package.json vscode-extension/node_modules/@514labs/moose-lsp/
-          cp -r lsp-server/dist vscode-extension/node_modules/@514labs/moose-lsp/
+          # Create minimal package.json (deps are bundled, only wasm is external)
+          node -e "
+            const pkg = require('./lsp-server/package.json');
+            pkg.dependencies = {'@514labs/moose-sql-validator-wasm': '*'};
+            pkg.main = 'server.js';
+            require('fs').writeFileSync('vscode-extension/server/@514labs/moose-lsp/package.json', JSON.stringify(pkg, null, 2));
+          "
+
+          # Copy sql-validator-wasm into node_modules for Node.js module resolution
+          cp -r lsp-server/dist/node_modules/@514labs/moose-sql-validator-wasm/* vscode-extension/server/@514labs/moose-lsp/node_modules/@514labs/moose-sql-validator-wasm/
 
       - name: Install vsce and ovsx
         run: npm install -g @vscode/vsce ovsx
@@ -188,22 +193,27 @@ jobs:
           cd vscode-extension
           npm version "${{ needs.build.outputs.version }}" --no-git-tag-version
 
-      - name: Prepare extension dependencies
+      - name: Prepare extension server bundle
         run: |
-          mkdir -p vscode-extension/node_modules/@514labs
+          # Use server/ directory instead of node_modules/ to avoid .gitignore issues
+          # The wasm package must be in node_modules relative to server.js for Node resolution
+          mkdir -p vscode-extension/server/@514labs/moose-lsp/node_modules/@514labs/moose-sql-validator-wasm
 
-          # Copy sql-validator-wasm
-          mkdir -p vscode-extension/node_modules/@514labs/moose-sql-validator-wasm
-          cp sql-validator-wasm/package.json vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
-          cp -r sql-validator-wasm/dist vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
-          if [ -d sql-validator-wasm/pkg ]; then
-            cp -r sql-validator-wasm/pkg vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
-          fi
+          # Copy bundled lsp-server (dependencies are bundled in server.js)
+          cp lsp-server/dist/server.js vscode-extension/server/@514labs/moose-lsp/
+          cp lsp-server/dist/server.js.map vscode-extension/server/@514labs/moose-lsp/
+          cp -r lsp-server/dist/data vscode-extension/server/@514labs/moose-lsp/
 
-          # Copy lsp-server
-          mkdir -p vscode-extension/node_modules/@514labs/moose-lsp
-          cp lsp-server/package.json vscode-extension/node_modules/@514labs/moose-lsp/
-          cp -r lsp-server/dist vscode-extension/node_modules/@514labs/moose-lsp/
+          # Create minimal package.json (deps are bundled, only wasm is external)
+          node -e "
+            const pkg = require('./lsp-server/package.json');
+            pkg.dependencies = {'@514labs/moose-sql-validator-wasm': '*'};
+            pkg.main = 'server.js';
+            require('fs').writeFileSync('vscode-extension/server/@514labs/moose-lsp/package.json', JSON.stringify(pkg, null, 2));
+          "
+
+          # Copy sql-validator-wasm into node_modules for Node.js module resolution
+          cp -r lsp-server/dist/node_modules/@514labs/moose-sql-validator-wasm/* vscode-extension/server/@514labs/moose-lsp/node_modules/@514labs/moose-sql-validator-wasm/
 
       - name: Install ovsx
         run: npm install -g ovsx
