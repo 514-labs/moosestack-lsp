@@ -1,0 +1,10 @@
+.vscode/**
+.vscode-test/**
+src/**
+tsconfig.json
+tsup.config.ts
+*.map
+*.ts
+!*.d.ts
+coverage/**
+

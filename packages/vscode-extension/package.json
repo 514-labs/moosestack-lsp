@@ -1,0 +1,71 @@
+{
+  "name": "moosestack-lsp",
+  "displayName": "MooseStack LSP",
+  "description": "Language Server for Moose TypeScript projects. Provides real-time SQL syntax validation, completions, and hover documentation for ClickHouse SQL in sql tagged templates.",
+  "version": "0.1.0",
+  "publisher": "514-labs",
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "keywords": [
+    "sql",
+    "clickhouse",
+    "moose",
+    "lsp",
+    "language-server",
+    "typescript"
+  ],
+  "activationEvents": [
+    "onLanguage:typescript",
+    "onLanguage:typescriptreact"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "MooseStack LSP",
+      "properties": {
+        "moosestack-lsp.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the language server.",
+          "scope": "window"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "watch": "tsup --watch",
+    "package": "vsce package",
+    "publish": "vsce publish",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@514labs/moose-lsp": "workspace:*",
+    "vscode-languageclient": "^9.0.1"
+  },
+  "extensionDependencies": [],
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.74.0",
+    "@vscode/vsce": "^2.22.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.3.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/514-labs/moosestack-lsp.git",
+    "directory": "packages/vscode-extension"
+  },
+  "license": "MIT"
+}

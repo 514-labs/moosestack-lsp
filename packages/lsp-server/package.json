@@ -1,7 +1,7 @@
 {
   "name": "@514labs/moose-lsp",
   "version": "0.1.0",
-  "description": "SQL Language Server for Moose TypeScript projects",
+  "description": "Language Server for Moose TypeScript projects",
   "license": "MIT",
   "repository": {
     "type": "git",
