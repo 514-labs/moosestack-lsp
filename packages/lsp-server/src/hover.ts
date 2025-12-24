@@ -93,12 +93,9 @@ export function findHoverInfo(
 ): HoverInfo | null {
   const lowerWord = word.toLowerCase();
 
-  // Search functions (prioritize exact match, then case-insensitive for caseInsensitive functions)
+  // Search functions (case-insensitive, ClickHouse functions are case-insensitive)
   for (const func of data.functions) {
-    if (func.name === word) {
-      return { type: 'function', name: func.name, data: func };
-    }
-    if (func.caseInsensitive && func.name.toLowerCase() === lowerWord) {
+    if (func.name.toLowerCase() === lowerWord) {
       return { type: 'function', name: func.name, data: func };
     }
   }
@@ -110,12 +107,9 @@ export function findHoverInfo(
     }
   }
 
-  // Search data types
+  // Search data types (case-insensitive)
   for (const dt of data.dataTypes) {
-    if (dt.name === word) {
-      return { type: 'dataType', name: dt.name, data: dt };
-    }
-    if (dt.caseInsensitive && dt.name.toLowerCase() === lowerWord) {
+    if (dt.name.toLowerCase() === lowerWord) {
       return { type: 'dataType', name: dt.name, data: dt };
     }
   }

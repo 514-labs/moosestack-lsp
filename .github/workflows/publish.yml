@@ -108,6 +108,8 @@ jobs:
         run: |
           cd lsp-server
           npm version "${{ needs.build.outputs.version }}" --no-git-tag-version
+          # Remove bundled workspace dependency (it's included in dist/node_modules)
+          node -e "const pkg = require('./package.json'); delete pkg.dependencies['@514labs/moose-sql-validator-wasm']; require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2))"
           npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
