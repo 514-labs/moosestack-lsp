@@ -145,10 +145,13 @@ jobs:
           cp lsp-server/package.json vscode-extension/node_modules/@514labs/moose-lsp/
           cp -r lsp-server/dist vscode-extension/node_modules/@514labs/moose-lsp/
 
+      - name: Install vsce
+        run: npm install -g @vscode/vsce
+
       - name: Package and publish to VS Code Marketplace
         run: |
           cd vscode-extension
-          npx @vscode/vsce package --no-dependencies
-          npx @vscode/vsce publish --no-dependencies
+          vsce package --no-dependencies
+          vsce publish --no-dependencies
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
