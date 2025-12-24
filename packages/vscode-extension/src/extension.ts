@@ -56,6 +56,7 @@ export function activate(context: vscode.ExtensionContext): void {
     .get<string>('trace.server', 'off');
   const traceOutputChannel =
     vscode.window.createOutputChannel('MooseStack LSP');
+  context.subscriptions.push(traceOutputChannel);
 
   // Options to control the language client
   const clientOptions: LanguageClientOptions = {
