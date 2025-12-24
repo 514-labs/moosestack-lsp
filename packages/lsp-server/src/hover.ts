@@ -153,12 +153,57 @@ export function findHoverInfo(
 }
 
 /**
+ * Looks up a function by name (case-insensitive).
+ */
+function findFunctionByName(
+  name: string,
+  data: ClickHouseData,
+): FunctionInfo | null {
+  const lowerName = name.toLowerCase();
+  for (const func of data.functions) {
+    if (func.name.toLowerCase() === lowerName) {
+      return func;
+    }
+  }
+  return null;
+}
+
+/**
+ * Adds function documentation parts to the parts array.
+ */
+function addFunctionDocParts(func: FunctionInfo, parts: string[]): void {
+  if (func.syntax) {
+    parts.push(`\`\`\`sql\n${func.syntax}\n\`\`\``);
+  }
+
+  if (func.description) {
+    parts.push(func.description.trim());
+  }
+
+  if (func.arguments) {
+    parts.push(`**Arguments:**\n${func.arguments.trim()}`);
+  }
+
+  if (func.returnedValue) {
+    parts.push(`**Returns:**\n${func.returnedValue.trim()}`);
+  }
+
+  if (func.categories) {
+    parts.push(`**Category:** ${func.categories}`);
+  }
+}
+
+/**
  * Creates markdown hover content from hover info.
  *
  * @param info - The hover information to format
+ * @param data - ClickHouse data for resolving aliases
  * @returns MarkupContent with markdown formatting
  */
-export function createHoverContent(info: HoverInfo): MarkupContent {
+export function createHoverContent(
+  info: HoverInfo,
+  data?: ClickHouseData,
+): MarkupContent {
   const parts: string[] = [];
 
   switch (info.type) {
@@ -168,28 +213,17 @@ export function createHoverContent(info: HoverInfo): MarkupContent {
 
       if (func.aliasTo) {
         parts.push(`**${func.name}** _(alias for \`${func.aliasTo}\`)_`);
+
+        // Look up the target function and show its documentation
+        if (data) {
+          const targetFunc = findFunctionByName(func.aliasTo, data);
+          if (targetFunc) {
+            addFunctionDocParts(targetFunc, parts);
+          }
+        }
       } else {
         parts.push(`**${func.name}** _(${funcType})_`);
-      }
-
-      if (func.syntax) {
-        parts.push(`\`\`\`sql\n${func.syntax}\n\`\`\``);
-      }
-
-      if (func.description) {
-        parts.push(func.description.trim());
-      }
-
-      if (func.arguments) {
-        parts.push(`**Arguments:**\n${func.arguments.trim()}`);
-      }
-
-      if (func.returnedValue) {
-        parts.push(`**Returns:**\n${func.returnedValue.trim()}`);
-      }
-
-      if (func.categories) {
-        parts.push(`**Category:** ${func.categories}`);
+        addFunctionDocParts(func, parts);
       }
       break;
     }

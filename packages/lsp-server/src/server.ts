@@ -593,7 +593,7 @@ connection.onHover((params: HoverParams): Hover | null => {
     if (!hoverInfo) return null;
 
     return {
-      contents: createHoverContent(hoverInfo),
+      contents: createHoverContent(hoverInfo, clickhouseData),
     };
   } catch {
     return null;

@@ -45,6 +45,30 @@ const testData: ClickHouseData = {
       examples: '',
       categories: '',
     },
+    {
+      name: 'toHour',
+      isAggregate: false,
+      caseInsensitive: true,
+      aliasTo: null,
+      syntax: 'toHour(datetime)',
+      description: 'Extracts the hour component from a DateTime.',
+      arguments: '- datetime: DateTime value',
+      returnedValue: 'UInt8 (0-23)',
+      examples: '',
+      categories: 'DateTime',
+    },
+    {
+      name: 'hour',
+      isAggregate: false,
+      caseInsensitive: true,
+      aliasTo: 'toHour',
+      syntax: '',
+      description: '',
+      arguments: '',
+      returnedValue: '',
+      examples: '',
+      categories: '',
+    },
   ],
   keywords: ['SELECT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY'],
   dataTypes: [
@@ -162,14 +186,17 @@ describe('hover', () => {
       // Should resolve to 'count' or find the alias
     });
 
-    it('finds case-sensitive function only with exact case', () => {
+    it('finds functions case-insensitively (ClickHouse functions are case-insensitive)', () => {
       const info = findHoverInfo('toUInt32', testData);
       assert.ok(info);
       assert.strictEqual(info.type, 'function');
       assert.strictEqual(info.name, 'toUInt32');
 
-      const infoWrongCase = findHoverInfo('touint32', testData);
-      assert.strictEqual(infoWrongCase, null);
+      // ClickHouse functions are case-insensitive, so both should work
+      const infoLowerCase = findHoverInfo('touint32', testData);
+      assert.ok(infoLowerCase);
+      assert.strictEqual(infoLowerCase.type, 'function');
+      assert.strictEqual(infoLowerCase.name, 'toUInt32'); // Returns canonical name
     });
 
     it('finds keyword', () => {
@@ -299,6 +326,24 @@ describe('hover', () => {
 
       assert.ok(content.value.includes('alias'));
       assert.ok(content.value.includes('Int64'));
+    });
+
+    it('creates markdown content for aliased function with target documentation', () => {
+      // hour is an alias for toHour
+      const info = findHoverInfo('hour', testData);
+      assert.ok(info);
+
+      // Pass testData to resolve the alias
+      const content = createHoverContent(info, testData);
+
+      // Should show it's an alias
+      assert.ok(content.value.includes('alias'));
+      assert.ok(content.value.includes('toHour'));
+
+      // Should also show the target function's documentation
+      assert.ok(content.value.includes('Extracts the hour component'));
+      assert.ok(content.value.includes('toHour(datetime)')); // syntax
+      assert.ok(content.value.includes('UInt8')); // return value
     });
 
     it('creates markdown content for table function', () => {
