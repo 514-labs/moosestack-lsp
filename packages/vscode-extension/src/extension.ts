@@ -27,8 +27,11 @@ export function activate(context: vscode.ExtensionContext): void {
     );
   }
 
-  // The debug options for the server
-  const debugOptions = { execArgv: ['--nolazy', '--inspect=6009'] };
+  // Get debug port from configuration (default 6009)
+  const debugPort = vscode.workspace
+    .getConfiguration('moosestack-lsp')
+    .get<number>('debug.port', 6009);
+  const debugOptions = { execArgv: ['--nolazy', `--inspect=${debugPort}`] };
 
   // If the extension is launched in debug mode then the debug server options are used
   // Otherwise the run options are used

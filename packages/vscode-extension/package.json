@@ -39,6 +39,12 @@
           "default": "off",
           "description": "Traces the communication between VS Code and the language server.",
           "scope": "window"
+        },
+        "moosestack-lsp.debug.port": {
+          "type": "number",
+          "default": 6009,
+          "description": "Port for Node.js inspector when debugging the language server.",
+          "scope": "window"
         }
       }
     }
