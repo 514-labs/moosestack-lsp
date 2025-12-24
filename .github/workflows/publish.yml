@@ -6,17 +6,22 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Extension version (e.g., 0.1.0)'
+        description: 'Version to publish (e.g., 0.1.0)'
         required: true
         type: string
-      publish-lsp:
-        description: 'Also publish @514labs/moose-lsp to npm'
+      publish-npm:
+        description: 'Publish @514labs/moose-lsp to npm'
+        required: false
+        type: boolean
+        default: true
+      publish-vscode:
+        description: 'Publish VS Code extension to marketplace'
         required: false
         type: boolean
         default: true
 
 jobs:
-  publish:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -49,86 +54,101 @@ jobs:
       - name: Build all packages
         run: pnpm build
 
-      - name: Publish @514labs/moose-lsp to npm (if requested)
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish-lsp == 'true' || github.event_name == 'release' }}
-        run: |
-          cd packages/lsp-server
-          # Get version from release tag or input
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION="${{ github.event.release.tag_name }}"
-            VERSION=${VERSION#v}
-          fi
-          npm version "${VERSION}" --no-git-tag-version
-          npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Get extension version
+      - name: Get version
         id: version
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             VERSION="${{ github.event.inputs.version }}"
           else
-            # Extract version from release tag (e.g., v0.1.0 -> 0.1.0)
             VERSION="${{ github.event.release.tag_name }}"
             VERSION=${VERSION#v}
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Publishing extension version: ${VERSION}"
+          echo "Publishing version: ${VERSION}"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            packages/lsp-server/dist/
+            packages/lsp-server/package.json
+            packages/sql-validator-wasm/dist/
+            packages/sql-validator-wasm/pkg/
+            packages/sql-validator-wasm/package.json
+            packages/vscode-extension/
+          retention-days: 1
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+  publish-npm:
+    needs: build
+    if: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish-npm == 'true') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Publish @514labs/moose-lsp to npm
+        run: |
+          cd packages/lsp-server
+          npm version "${{ needs.build.outputs.version }}" --no-git-tag-version
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-vscode:
+    needs: build
+    if: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish-vscode == 'true') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
       - name: Update extension version
         run: |
           cd packages/vscode-extension
-          npm version "${{ steps.version.outputs.version }}" --no-git-tag-version
+          npm version "${{ needs.build.outputs.version }}" --no-git-tag-version
 
-      - name: Build extension
+      - name: Prepare extension dependencies
         run: |
-          cd packages/vscode-extension
-          pnpm build
-
-      - name: Ensure dependencies are in extension node_modules
-        run: |
-          # Remove pnpm symlinks before copying (pnpm creates symlinks for workspace deps)
-          rm -rf packages/vscode-extension/node_modules/@514labs/moose-lsp
-          rm -rf packages/vscode-extension/node_modules/@514labs/moose-sql-validator-wasm
-
-          # Copy the built packages to the extension's node_modules
-          # This ensures vsce can include them in the package
           mkdir -p packages/vscode-extension/node_modules/@514labs
-          
-          # Copy sql-validator-wasm (dependency of lsp-server)
+
+          # Copy sql-validator-wasm
           mkdir -p packages/vscode-extension/node_modules/@514labs/moose-sql-validator-wasm
           cp packages/sql-validator-wasm/package.json packages/vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
           cp -r packages/sql-validator-wasm/dist packages/vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
-          # Note: the 'pkg' directory is only produced when building the WASM bindings; skip if it's not present.
           if [ -d packages/sql-validator-wasm/pkg ]; then
             cp -r packages/sql-validator-wasm/pkg packages/vscode-extension/node_modules/@514labs/moose-sql-validator-wasm/
           fi
-          
-          # Copy lsp-server (main dependency)
+
+          # Copy lsp-server
           mkdir -p packages/vscode-extension/node_modules/@514labs/moose-lsp
           cp packages/lsp-server/package.json packages/vscode-extension/node_modules/@514labs/moose-lsp/
           cp -r packages/lsp-server/dist packages/vscode-extension/node_modules/@514labs/moose-lsp/
-          
-          # Verify the structure
-          echo "Installed packages:"
-          ls -la packages/vscode-extension/node_modules/@514labs/
-          echo "lsp-server contents:"
-          ls -la packages/vscode-extension/node_modules/@514labs/moose-lsp/dist/ | head -10
 
-      - name: Package extension
+      - name: Package and publish to VS Code Marketplace
         run: |
           cd packages/vscode-extension
-          # Package the extension - vsce will include node_modules/@514labs/moose-lsp
           npx @vscode/vsce package --no-dependencies
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-
-      - name: Publish to VS Code Marketplace
-        run: |
-          cd packages/vscode-extension
           npx @vscode/vsce publish --no-dependencies
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
