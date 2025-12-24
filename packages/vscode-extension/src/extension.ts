@@ -69,6 +69,9 @@ export function activate(context: vscode.ExtensionContext): void {
     },
     outputChannel: traceOutputChannel,
     traceOutputChannel: traceOutputChannel,
+    initializationOptions: {
+      trace: traceSetting,
+    },
   };
 
   // Create the language client and start the client.
