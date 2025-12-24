@@ -100,21 +100,28 @@ moosestack-lsp --help
 Add to `~/.config/nvim/lua/plugins/moosestack-lsp.lua`:
 
 ```lua
-return {
-  {
-    "neovim/nvim-lspconfig",
-    opts = {
-      servers = {
-        moosestack = {
+-- Setup moosestack LSP after plugins load
+vim.api.nvim_create_autocmd("User", {
+  pattern = "LazyDone",
+  callback = function()
+    local lspconfig = require("lspconfig")
+    local configs = require("lspconfig.configs")
+
+    if not configs.moosestack then
+      configs.moosestack = {
+        default_config = {
           cmd = { "moosestack-lsp", "--stdio" },
           filetypes = { "typescript", "typescriptreact" },
-          root_markers = { "package.json", "moose.config.toml" },
-          mason = false, -- not available in mason yet
+          root_dir = lspconfig.util.root_pattern("moose.config.toml", "package.json"),
         },
-      },
-    },
-  },
-}
+      }
+    end
+
+    lspconfig.moosestack.setup({})
+  end,
+})
+
+return {}
 ```
 
 ### Neovim (with nvim-lspconfig)
@@ -125,15 +132,16 @@ Add to your Neovim config:
 local lspconfig = require('lspconfig')
 local configs = require('lspconfig.configs')
 
--- Define the moosestack LSP configuration
-configs.moosestack = {
-  default_config = {
-    cmd = { 'moosestack-lsp', '--stdio' },
-    filetypes = { 'typescript', 'typescriptreact' },
-    root_dir = lspconfig.util.root_pattern('package.json', 'moose.config.toml'),
-    settings = {},
-  },
-}
+-- Register moosestack as a custom LSP server
+if not configs.moosestack then
+  configs.moosestack = {
+    default_config = {
+      cmd = { 'moosestack-lsp', '--stdio' },
+      filetypes = { 'typescript', 'typescriptreact' },
+      root_dir = lspconfig.util.root_pattern('moose.config.toml', 'package.json'),
+    },
+  }
+end
 
 -- Activate the LSP for TypeScript files
 lspconfig.moosestack.setup({})
