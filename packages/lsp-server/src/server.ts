@@ -38,8 +38,14 @@ import {
 // completions.ts still used by tests but server uses Rust completions
 import { createLocationDiagnostic } from './diagnostics';
 import { createHoverContent, findHoverInfo, getWordAtPosition } from './hover';
-import { detectMooseProject } from './projectDetector';
-import { shouldValidateFile, validateSqlLocations } from './serverLogic';
+import { detectMooseProjectWithInfo } from './projectDetector';
+import { createPythonService, type PythonService } from './pythonService';
+import {
+  isPythonFile,
+  isTypeScriptFile,
+  shouldValidateFile,
+  validateSqlLocations,
+} from './serverLogic';
 import { extractAllSqlLocations, extractSqlLocations } from './sqlExtractor';
 import {
   createTypeScriptService,
@@ -50,7 +56,9 @@ const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
 
 let mooseProjectRoot: string | null = null;
+let mooseProjectType: 'typescript' | 'python' | 'both' | null = null;
 let tsService: TypeScriptService | null = null;
+let pyService: PythonService | null = null;
 let clickhouseData: ClickHouseData | null = null;
 let clientSupportsSnippets = false;
 
@@ -59,16 +67,13 @@ const validationTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const DEBOUNCE_MS = 300;
 
 /**
- * Validates a document and publishes diagnostics.
- * Uses the TypeScript service to extract SQL locations and validate them.
+ * Validates a TypeScript document and publishes diagnostics.
  */
-function validateDocument(document: TextDocument): void {
-  if (!tsService?.isHealthy() || !mooseProjectRoot) return;
-
-  const filePath = new URL(document.uri).pathname;
-  if (!shouldValidateFile(filePath, mooseProjectRoot)) return;
-
-  connection.console.log(`Validating file: ${filePath}`);
+function validateTypeScriptDocument(
+  document: TextDocument,
+  filePath: string,
+): void {
+  if (!tsService?.isHealthy()) return;
 
   try {
     // Update TypeScript program with latest content
@@ -108,21 +113,88 @@ function validateDocument(document: TextDocument): void {
     }
   } catch (error) {
     if (error instanceof Error) {
-      connection.console.error(`Error validating SQL: ${error.message}`);
+      connection.console.error(
+        `Error validating TypeScript SQL: ${error.message}`,
+      );
     } else {
-      connection.console.error(`Unknown error validating SQL: ${error}`);
+      connection.console.error(
+        `Unknown error validating TypeScript SQL: ${error}`,
+      );
     }
   }
 }
 
 /**
- * Performs initial full-project scan for SQL templates.
- * Called after TypeScript service is initialized.
+ * Validates a Python document and publishes diagnostics.
  */
-function performInitialScan(): void {
-  if (!tsService?.isHealthy() || !mooseProjectRoot) return;
+function validatePythonDocument(
+  document: TextDocument,
+  filePath: string,
+): void {
+  if (!pyService?.isHealthy()) return;
 
-  connection.console.log('Running initial SQL validation scan...');
+  try {
+    // Update Python service with latest content
+    pyService.updateFile(filePath, document.getText());
+
+    // Extract SQL locations from this file
+    const sqlLocations = pyService.extractSqlLocations(filePath);
+
+    connection.console.log(
+      `Found ${sqlLocations.length} SQL templates in ${filePath}`,
+    );
+
+    // Validate and collect diagnostics
+    const diagnosticsMap = validateSqlLocations(
+      sqlLocations,
+      validateSql,
+      createLocationDiagnostic,
+    );
+
+    // Publish diagnostics for this file (empty array clears old diagnostics)
+    const diagnostics = diagnosticsMap.get(document.uri) || [];
+    connection.sendDiagnostics({ uri: document.uri, diagnostics });
+
+    if (diagnostics.length > 0) {
+      connection.console.log(
+        `Published ${diagnostics.length} diagnostic(s) for ${filePath}`,
+      );
+    }
+  } catch (error) {
+    if (error instanceof Error) {
+      connection.console.error(`Error validating Python SQL: ${error.message}`);
+    } else {
+      connection.console.error(`Unknown error validating Python SQL: ${error}`);
+    }
+  }
+}
+
+/**
+ * Validates a document and publishes diagnostics.
+ * Routes to appropriate validator based on file extension.
+ */
+function validateDocument(document: TextDocument): void {
+  if (!mooseProjectRoot) return;
+
+  const filePath = new URL(document.uri).pathname;
+  if (!shouldValidateFile(filePath, mooseProjectRoot)) return;
+
+  connection.console.log(`Validating file: ${filePath}`);
+
+  if (isTypeScriptFile(filePath) && tsService?.isHealthy()) {
+    validateTypeScriptDocument(document, filePath);
+  } else if (isPythonFile(filePath) && pyService?.isHealthy()) {
+    validatePythonDocument(document, filePath);
+  }
+}
+
+/**
+ * Performs initial full-project scan for SQL templates in TypeScript files.
+ */
+function performTypeScriptInitialScan(): void {
+  if (!tsService?.isHealthy()) return;
+
+  connection.console.log('Running initial TypeScript SQL validation scan...');
 
   try {
     const sourceFiles = tsService.getSourceFiles();
@@ -130,7 +202,7 @@ function performInitialScan(): void {
 
     const allLocations = extractAllSqlLocations(sourceFiles, typeChecker);
     connection.console.log(
-      `Found ${allLocations.length} SQL templates in ${sourceFiles.length} files`,
+      `Found ${allLocations.length} SQL templates in ${sourceFiles.length} TypeScript files`,
     );
 
     if (allLocations.length === 0) return;
@@ -155,14 +227,87 @@ function performInitialScan(): void {
     }
 
     connection.console.log(
-      `Published diagnostics for ${allFileUris.size} files (${diagnosticsMap.size} with errors)`,
+      `Published TypeScript diagnostics for ${allFileUris.size} files (${diagnosticsMap.size} with errors)`,
     );
   } catch (error) {
     if (error instanceof Error) {
-      connection.console.error(`Error in initial scan: ${error.message}`);
+      connection.console.error(
+        `Error in TypeScript initial scan: ${error.message}`,
+      );
     } else {
-      connection.console.error(`Unknown error in initial scan: ${error}`);
+      connection.console.error(
+        `Unknown error in TypeScript initial scan: ${error}`,
+      );
     }
+  }
+}
+
+/**
+ * Performs initial full-project scan for SQL templates in Python files.
+ */
+function performPythonInitialScan(): void {
+  if (!pyService?.isHealthy()) return;
+
+  connection.console.log('Running initial Python SQL validation scan...');
+
+  try {
+    const allLocations = pyService.extractAllSqlLocations();
+    const fileCount = pyService.getFiles().length;
+
+    connection.console.log(
+      `Found ${allLocations.length} SQL templates in ${fileCount} Python files`,
+    );
+
+    if (allLocations.length === 0) return;
+
+    // Validate all locations
+    const diagnosticsMap = validateSqlLocations(
+      allLocations,
+      validateSql,
+      createLocationDiagnostic,
+    );
+
+    // Collect all unique file URIs
+    const allFileUris = new Set<string>();
+    for (const location of allLocations) {
+      allFileUris.add(`file://${location.file}`);
+    }
+
+    // Publish diagnostics for all files (empty arrays clear old diagnostics)
+    for (const uri of allFileUris) {
+      const diagnostics = diagnosticsMap.get(uri) || [];
+      connection.sendDiagnostics({ uri, diagnostics });
+    }
+
+    connection.console.log(
+      `Published Python diagnostics for ${allFileUris.size} files (${diagnosticsMap.size} with errors)`,
+    );
+  } catch (error) {
+    if (error instanceof Error) {
+      connection.console.error(
+        `Error in Python initial scan: ${error.message}`,
+      );
+    } else {
+      connection.console.error(
+        `Unknown error in Python initial scan: ${error}`,
+      );
+    }
+  }
+}
+
+/**
+ * Performs initial full-project scan for SQL templates.
+ * Scans both TypeScript and Python files based on project type.
+ */
+function performInitialScan(): void {
+  if (!mooseProjectRoot) return;
+
+  if (mooseProjectType === 'typescript' || mooseProjectType === 'both') {
+    performTypeScriptInitialScan();
+  }
+
+  if (mooseProjectType === 'python' || mooseProjectType === 'both') {
+    performPythonInitialScan();
   }
 }
 
@@ -239,30 +384,54 @@ connection.onInitialize(
 
     if (workspaceRoot) {
       try {
-        mooseProjectRoot = await detectMooseProject(workspaceRoot);
-        if (mooseProjectRoot) {
+        const projectInfo = await detectMooseProjectWithInfo(workspaceRoot);
+        if (projectInfo) {
+          mooseProjectRoot = projectInfo.root;
+          mooseProjectType = projectInfo.type;
+
           connection.console.log(
-            `Moose project detected at: ${mooseProjectRoot}`,
+            `Moose project detected at: ${mooseProjectRoot} (type: ${mooseProjectType})`,
           );
 
           // Initialize WASM SQL validator
           await initValidator();
 
-          // Initialize TypeScript service
-          const tsconfigPath = path.join(mooseProjectRoot, 'tsconfig.json');
-          tsService = createTypeScriptService();
-          tsService.initialize(tsconfigPath);
+          // Initialize TypeScript service if needed
+          if (
+            mooseProjectType === 'typescript' ||
+            mooseProjectType === 'both'
+          ) {
+            const tsconfigPath = path.join(mooseProjectRoot, 'tsconfig.json');
+            tsService = createTypeScriptService();
+            tsService.initialize(tsconfigPath);
 
-          if (!tsService.isHealthy()) {
-            connection.console.error(
-              `Failed to initialize TypeScript: ${tsService.getError()}`,
-            );
-            tsService = null;
-          } else {
-            connection.console.log('TypeScript service initialized');
-            // Perform initial full-project scan
-            performInitialScan();
+            if (!tsService.isHealthy()) {
+              connection.console.error(
+                `Failed to initialize TypeScript: ${tsService.getError()}`,
+              );
+              tsService = null;
+            } else {
+              connection.console.log('TypeScript service initialized');
+            }
           }
+
+          // Initialize Python service if needed
+          if (mooseProjectType === 'python' || mooseProjectType === 'both') {
+            pyService = createPythonService();
+            await pyService.initialize(mooseProjectRoot);
+
+            if (!pyService.isHealthy()) {
+              connection.console.error(
+                `Failed to initialize Python: ${pyService.getError()}`,
+              );
+              pyService = null;
+            } else {
+              connection.console.log('Python service initialized');
+            }
+          }
+
+          // Perform initial full-project scan
+          performInitialScan();
 
           // Load ClickHouse completion data
           await loadClickHouseCompletionData(mooseProjectRoot);
@@ -353,13 +522,16 @@ documents.onDidClose((event) => {
 
 // Code action handler - returns available code actions for a given range
 connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
-  if (!tsService?.isHealthy() || !mooseProjectRoot) return [];
+  if (!mooseProjectRoot) return [];
 
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
 
   const filePath = new URL(params.textDocument.uri).pathname;
   if (!shouldValidateFile(filePath, mooseProjectRoot)) return [];
+
+  // Code actions only supported for TypeScript files (Format SQL requires AST access)
+  if (!isTypeScriptFile(filePath) || !tsService?.isHealthy()) return [];
 
   try {
     const sourceFile = tsService.getSourceFile(filePath);
@@ -470,9 +642,28 @@ function toRustCompletionItem(
   };
 }
 
+/**
+ * Gets SQL locations for a file based on its type.
+ */
+function getSqlLocationsForFile(
+  filePath: string,
+): import('./sqlLocations').SqlLocation[] {
+  if (isTypeScriptFile(filePath) && tsService?.isHealthy()) {
+    const sourceFile = tsService.getSourceFile(filePath);
+    if (!sourceFile) return [];
+    return extractSqlLocations(sourceFile, tsService.getTypeChecker());
+  }
+
+  if (isPythonFile(filePath) && pyService?.isHealthy()) {
+    return pyService.extractSqlLocations(filePath);
+  }
+
+  return [];
+}
+
 // Completion handler - provides context-aware SQL completions inside sql template literals
 connection.onCompletion((params: CompletionParams): CompletionItem[] => {
-  if (!tsService?.isHealthy() || !mooseProjectRoot || !clickhouseData) {
+  if (!mooseProjectRoot || !clickhouseData) {
     return [];
   }
 
@@ -483,13 +674,8 @@ connection.onCompletion((params: CompletionParams): CompletionItem[] => {
   if (!shouldValidateFile(filePath, mooseProjectRoot)) return [];
 
   try {
-    const sourceFile = tsService.getSourceFile(filePath);
-    if (!sourceFile) return [];
-
-    const sqlLocations = extractSqlLocations(
-      sourceFile,
-      tsService.getTypeChecker(),
-    );
+    const sqlLocations = getSqlLocationsForFile(filePath);
+    if (sqlLocations.length === 0) return [];
 
     // Check if cursor is inside any SQL template
     const location = findSqlTemplateAtPosition(
@@ -540,8 +726,13 @@ connection.onCompletion((params: CompletionParams): CompletionItem[] => {
 
     // Convert to LSP CompletionItem format and filter by prefix
     const completions: CompletionItem[] = rustCompletions
-      .filter((c) => !prefix || c.label.toLowerCase().startsWith(prefix))
-      .map((c) => toRustCompletionItem(c, clientSupportsSnippets));
+      .filter(
+        (c: RustCompletionItem) =>
+          !prefix || c.label.toLowerCase().startsWith(prefix),
+      )
+      .map((c: RustCompletionItem) =>
+        toRustCompletionItem(c, clientSupportsSnippets),
+      );
 
     return completions;
   } catch {
@@ -551,7 +742,7 @@ connection.onCompletion((params: CompletionParams): CompletionItem[] => {
 
 // Hover handler - provides documentation on hover inside sql template literals
 connection.onHover((params: HoverParams): Hover | null => {
-  if (!tsService?.isHealthy() || !mooseProjectRoot || !clickhouseData) {
+  if (!mooseProjectRoot || !clickhouseData) {
     return null;
   }
 
@@ -562,13 +753,8 @@ connection.onHover((params: HoverParams): Hover | null => {
   if (!shouldValidateFile(filePath, mooseProjectRoot)) return null;
 
   try {
-    const sourceFile = tsService.getSourceFile(filePath);
-    if (!sourceFile) return null;
-
-    const sqlLocations = extractSqlLocations(
-      sourceFile,
-      tsService.getTypeChecker(),
-    );
+    const sqlLocations = getSqlLocationsForFile(filePath);
+    if (sqlLocations.length === 0) return null;
 
     // Check if cursor is inside any SQL template
     const location = findSqlTemplateAtPosition(

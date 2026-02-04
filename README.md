@@ -16,11 +16,11 @@
 
 # moosestack-lsp
 
-Language Server for Moose TypeScript projects. Provides real-time SQL syntax validation for SQL strings embedded in `sql` tagged templates.
+Language Server for Moose projects. Provides real-time SQL syntax validation for SQL strings embedded in TypeScript `sql` tagged templates and Python `sql()` function calls.
 
 ## Editor Features
 
-These features appear directly in your IDE when editing `sql` tagged template literals:
+These features appear directly in your IDE when editing `sql` tagged template literals (TypeScript) or `sql()` function calls (Python):
 
 | Feature | What You See in Your Editor |
 |---------|---------------------------|
@@ -42,7 +42,9 @@ These features appear directly in your IDE when editing `sql` tagged template li
 ## Prerequisites
 
 - Node.js 18+ (for running the LSP server)
-- A Moose TypeScript project with `@514labs/moose-lib` installed (for type resolution)
+- A Moose project with:
+  - **TypeScript**: `@514labs/moose-lib` in `package.json`
+  - **Python**: `moose-lib` in `pyproject.toml`, `requirements.txt`, or `setup.py`
 - An LSP-compatible editor
 
 ## Installation
@@ -92,8 +94,8 @@ vim.api.nvim_create_autocmd("User", {
       configs.moosestack = {
         default_config = {
           cmd = { "moosestack-lsp", "--stdio" },
-          filetypes = { "typescript" },
-          root_dir = lspconfig.util.root_pattern("moose.config.toml", "package.json"),
+          filetypes = { "typescript", "python" },
+          root_dir = lspconfig.util.root_pattern("moose.config.toml", "package.json", "pyproject.toml"),
         },
       }
     end
@@ -114,10 +116,11 @@ The extension is published to both the [VS Code Marketplace](https://marketplace
 3. Search for "MooseStack LSP" or "moosestack-lsp"
 4. Click **Install**
 
-That's it! The extension will automatically start when you open TypeScript files in a Moose project.
+That's it! The extension will automatically start when you open TypeScript or Python files in a Moose project.
 
 ### Verify It's Working
 
+**For TypeScript:**
 1. Open a TypeScript file in a Moose project (must have `@514labs/moose-lib` in `package.json`)
 2. Type some SQL in a `sql` tagged template literal
 3. You should see:
@@ -125,10 +128,19 @@ That's it! The extension will automatically start when you open TypeScript files
    - Completions when typing in SQL strings (press `Ctrl+Space` or `Cmd+Space`)
    - Hover documentation when hovering over ClickHouse functions
 
+**For Python:**
+1. Open a Python file in a Moose project (must have `moose-lib` in `pyproject.toml` or `requirements.txt`)
+2. Type some SQL in a `sql()` function call or f-string with `:col` format
+3. You should see the same diagnostics, completions, and hover documentation
+
 ## How It Works
 
-1. **Project Detection** - The LSP searches for `package.json` files containing `@514labs/moose-lib` in your workspace
-2. **TypeScript Analysis** - Uses the TypeScript compiler API to parse source files and find `sql` tagged template literals
+1. **Project Detection** - The LSP searches for:
+   - `package.json` files containing `@514labs/moose-lib` (TypeScript)
+   - `pyproject.toml`, `requirements.txt`, or `setup.py` containing `moose-lib` (Python)
+2. **Source Analysis**:
+   - **TypeScript**: Uses the TypeScript compiler API to parse source files and find `sql` tagged template literals
+   - **Python**: Uses tree-sitter to parse Python files and find `sql()` function calls and f-strings with `:col` format
 3. **Validation** - Each SQL string is validated using a WASM-compiled Rust SQL parser with ClickHouse dialect
 4. **Diagnostics** - Validation errors are published as LSP diagnostics, appearing as error squiggles in your editor
 
@@ -175,9 +187,11 @@ moosestack-lsp/
 ### No diagnostics appearing
 
 1. Check your editor's LSP logs to ensure the server is starting
-2. Verify your project has `@514labs/moose-lib` in `package.json` dependencies
-3. Ensure you're editing `.ts` files
-4. Check that `tsconfig.json` exists in your project root
+2. Verify your project has:
+   - **TypeScript**: `@514labs/moose-lib` in `package.json` dependencies
+   - **Python**: `moose-lib` in `pyproject.toml`, `requirements.txt`, or `setup.py`
+3. Ensure you're editing `.ts` or `.py` files
+4. For TypeScript: Check that `tsconfig.json` exists in your project root
 
 ## Roadmap
 
@@ -187,7 +201,7 @@ moosestack-lsp/
 - [x] ClickHouse version detection
 - [x] Context-aware completions (show only relevant items based on SQL context)
 - [x] VS Code extension
-- [ ] Python support
+- [x] Python support
 
 ## Contributing
 

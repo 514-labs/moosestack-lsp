@@ -50,15 +50,16 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Options to control the language client
   const clientOptions: LanguageClientOptions = {
-    // Register the server for TypeScript and TypeScript React documents
+    // Register the server for TypeScript, TypeScript React, and Python documents
     documentSelector: [
       { scheme: 'file', language: 'typescript' },
       { scheme: 'file', language: 'typescriptreact' },
+      { scheme: 'file', language: 'python' },
     ],
     synchronize: {
       // Notify the server about file changes to files contained in the workspace
       fileEvents: vscode.workspace.createFileSystemWatcher(
-        '**/{package.json,tsconfig.json,moose.config.toml}',
+        '**/{package.json,tsconfig.json,moose.config.toml,pyproject.toml,requirements.txt,setup.py}',
       ),
     },
     outputChannel: traceOutputChannel,
