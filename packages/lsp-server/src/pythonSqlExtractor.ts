@@ -73,15 +73,22 @@ function extractSqlFromCall(callNode: Parser.SyntaxNode): {
  * Converts f-string interpolations to ${...} placeholders.
  */
 function extractStringContent(node: Parser.SyntaxNode): string | null {
+  const text = node.text;
+  const isFString = /^f['"]/.test(text);
+
   if (node.type === 'string') {
+    if (isFString) {
+      // F-string: f"SELECT {col} FROM users"
+      return extractFStringContent(text);
+    }
     // Regular string: "SELECT * FROM users"
     // Remove quotes and extract content
-    return extractQuotedStringContent(node.text);
+    return extractQuotedStringContent(text);
   }
 
   if (node.type === 'formatted_string') {
     // F-string: f"SELECT {col} FROM users"
-    return extractFormattedStringContent(node);
+    return extractFStringContent(text);
   }
 
   if (node.type === 'concatenated_string') {
@@ -135,32 +142,23 @@ function extractQuotedStringContent(text: string): string | null {
 }
 
 /**
- * Extract content from a formatted string (f-string).
- * Converts {expr} and {expr:col} to ${...} placeholders.
+ * Extract content from an f-string text, converting interpolations to ${...}.
+ * Works with raw text (e.g., f"SELECT {col} FROM users").
  */
-function extractFormattedStringContent(node: Parser.SyntaxNode): string {
-  let result = '';
-
-  for (const child of node.children) {
-    if (
-      child.type === 'string_content' ||
-      child.type === 'string_start' ||
-      child.type === 'string_end'
-    ) {
-      // Regular text content
-      if (child.type === 'string_content') {
-        result += child.text;
-      }
-    } else if (child.type === 'interpolation') {
-      // {expr} or {expr:format} - convert to ${...}
-      result += '${...}';
-    } else if (child.type === 'formatted_value') {
-      // Alternative name for interpolation in some tree-sitter versions
-      result += '${...}';
-    }
+function extractFStringContent(text: string): string {
+  // Remove the f-string prefix (f", f', f""", f''')
+  let content: string;
+  if (text.startsWith('f"""') || text.startsWith("f'''")) {
+    content = text.slice(4, -3);
+  } else if (text.startsWith('f"') || text.startsWith("f'")) {
+    content = text.slice(2, -1);
+  } else {
+    content = text;
   }
 
-  return result;
+  // Replace all {expr} or {expr:format} patterns with ${...}
+  // This regex matches: { followed by anything except } until }
+  return content.replace(/\{[^}]+\}/g, '${...}');
 }
 
 /**
@@ -249,8 +247,13 @@ export function extractPythonSqlLocations(
     }
 
     // Check for f-strings with :col format specifier (moose-lib SQL pattern)
-    if (node.type === 'formatted_string' && hasColFormatSpecifier(node)) {
-      const content = extractFormattedStringContent(node);
+    // tree-sitter-python may use 'string' or 'formatted_string' for f-strings
+    const isFString =
+      node.type === 'formatted_string' ||
+      (node.type === 'string' && /^f['"]/.test(node.text));
+
+    if (isFString && hasColFormatSpecifier(node)) {
+      const content = extractFStringContent(node.text);
       if (content && looksLikeSql(content)) {
         locations.push(
           createSqlLocation(
