@@ -121,6 +121,30 @@ query = moose_lib.sql("SELECT * FROM users")
       assert.strictEqual(locations[0].templateText, 'SELECT * FROM users');
     });
 
+    it('ignores sql() calls when file does not import moose_lib', () => {
+      const code = `
+from sqlalchemy import sql
+
+query = sql("SELECT * FROM users")
+`;
+      const locations = extractPythonSqlLocations(code, '/test/file.py');
+
+      // Should not extract sql() calls from non-moose files
+      assert.strictEqual(locations.length, 0);
+    });
+
+    it('handles moose_lib submodule imports', () => {
+      const code = `
+from moose_lib.sql import sql
+
+query = sql("SELECT * FROM users")
+`;
+      const locations = extractPythonSqlLocations(code, '/test/file.py');
+
+      assert.strictEqual(locations.length, 1);
+      assert.strictEqual(locations[0].templateText, 'SELECT * FROM users');
+    });
+
     it('extracts correct line and column positions', () => {
       const code = `from moose_lib import sql
 

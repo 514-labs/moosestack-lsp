@@ -8,10 +8,45 @@ const parser = new Parser();
 parser.setLanguage(Python as unknown as Parser.Language);
 
 /**
+ * Check if the file imports from moose_lib.
+ * This is used to filter out sql() calls that aren't from moose-lib.
+ */
+function fileImportsMooseLib(rootNode: Parser.SyntaxNode): boolean {
+  for (const child of rootNode.children) {
+    // Handle: import moose_lib
+    if (child.type === 'import_statement') {
+      const moduleName = child.childForFieldName('name');
+      if (moduleName?.text === 'moose_lib') {
+        return true;
+      }
+      // Handle: import moose_lib.sql
+      if (
+        moduleName?.type === 'dotted_name' &&
+        moduleName.text.startsWith('moose_lib')
+      ) {
+        return true;
+      }
+    }
+
+    // Handle: from moose_lib import sql
+    // Handle: from moose_lib.sql import sql
+    if (child.type === 'import_from_statement') {
+      const moduleName = child.childForFieldName('module_name');
+      if (
+        moduleName?.text === 'moose_lib' ||
+        moduleName?.text?.startsWith('moose_lib.')
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
  * Check if a function call is a `sql()` call from moose-lib.
  * We look for calls where the function name is 'sql'.
- * Since Python doesn't have the same type resolution as TypeScript,
- * we use a heuristic approach - any `sql()` call is considered valid.
  */
 function isSqlFunctionCall(node: Parser.SyntaxNode): boolean {
   if (node.type !== 'call') return false;
@@ -230,9 +265,12 @@ export function extractPythonSqlLocations(
 
   const tree = parser.parse(sourceCode);
 
+  // Only process sql() calls if the file imports from moose_lib
+  const hasMooseImport = fileImportsMooseLib(tree.rootNode);
+
   function visit(node: Parser.SyntaxNode): void {
-    // Check for sql() function calls
-    if (isSqlFunctionCall(node)) {
+    // Check for sql() function calls (only if file imports moose_lib)
+    if (hasMooseImport && isSqlFunctionCall(node)) {
       const sqlContent = extractSqlFromCall(node);
       if (sqlContent) {
         locations.push(
