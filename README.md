@@ -28,7 +28,7 @@ These features appear directly in your IDE when editing `sql` tagged template li
 | **Auto-Complete** | Popup suggestions for ClickHouse functions, keywords, data types, table engines, formats, and settings |
 | **Context-Aware Completions** | Only relevant completions based on cursor position (e.g., only table engines after `ENGINE =`, only formats after `FORMAT`) |
 | **Hover Documentation** | Tooltip with syntax, description, and examples when you hover over any ClickHouse function, keyword, or type |
-| **Code Actions** | "Format SQL" action available in your editor's quick-fix menu to auto-format SQL strings |
+| **Code Actions** | "Format SQL" action available in your editor's quick-fix menu to auto-format SQL strings (TypeScript only) |
 | **Snippet Support** | Function completions insert with tab stops for parameters (e.g., `toHour($1)`) |
 
 ## Additional Features
