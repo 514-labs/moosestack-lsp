@@ -169,6 +169,18 @@ query2 = sql("SELECT * FROM orders")
       assert.strictEqual(locations.length, 2);
       assert.notStrictEqual(locations[0].id, locations[1].id);
     });
+
+    it('handles f-string with nested braces in expression', () => {
+      const code = `
+from moose_lib import sql
+
+query = sql(f"SELECT {func({1, 2})} FROM users")
+`;
+      const locations = extractPythonSqlLocations(code, '/test/file.py');
+
+      assert.strictEqual(locations.length, 1);
+      assert.strictEqual(locations[0].templateText, 'SELECT ${...} FROM users');
+    });
   });
 
   describe('extractAllPythonSqlLocations', () => {

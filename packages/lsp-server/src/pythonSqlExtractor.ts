@@ -191,9 +191,38 @@ function extractFStringContent(text: string): string {
     content = text;
   }
 
-  // Replace all {expr} or {expr:format} patterns with ${...}
-  // This regex matches: { followed by anything except } until }
-  return content.replace(/\{[^}]+\}/g, '${...}');
+  // Replace balanced {expr} with ${...} using depth tracking
+  // This handles nested braces like {func({1, 2})} correctly
+  let result = '';
+  let i = 0;
+  while (i < content.length) {
+    if (content[i] === '{') {
+      if (content[i + 1] === '{') {
+        // Escaped {{ → literal {
+        result += '{';
+        i += 2;
+      } else {
+        // Find matching closing brace with depth tracking
+        let depth = 1;
+        let j = i + 1;
+        while (j < content.length && depth > 0) {
+          if (content[j] === '{') depth++;
+          else if (content[j] === '}') depth--;
+          j++;
+        }
+        result += '${...}';
+        i = j;
+      }
+    } else if (content[i] === '}' && content[i + 1] === '}') {
+      // Escaped }} → literal }
+      result += '}';
+      i += 2;
+    } else {
+      result += content[i];
+      i++;
+    }
+  }
+  return result;
 }
 
 /**
