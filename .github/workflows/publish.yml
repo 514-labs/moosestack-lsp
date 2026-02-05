@@ -25,6 +25,10 @@ on:
         type: boolean
         default: true
 
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -51,7 +55,7 @@ jobs:
           toolchain: stable
 
       - name: Install wasm-pack
-        run: cargo install wasm-pack
+        uses: taiki-e/install-action@wasm-pack
 
       - name: Install dependencies
         run: pnpm install
@@ -61,28 +65,84 @@ jobs:
 
       - name: Get version
         id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
+          if [ "${EVENT_NAME}" == "workflow_dispatch" ]; then
+            VERSION="${INPUT_VERSION}"
           else
-            VERSION="${{ github.event.release.tag_name }}"
-            VERSION=${VERSION#v}
+            VERSION="${RELEASE_TAG}"
+            VERSION="${VERSION#v}"
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Publishing version: ${VERSION}"
 
-      - name: Upload build artifacts
+      - name: Validate version format
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if ! echo "${VERSION}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?(\+[a-zA-Z0-9.]+)?$'; then
+            echo "::error::Invalid semver version: '${VERSION}'"
+            exit 1
+          fi
+
+      - name: Update extension version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cd packages/vscode-extension
+          npm version "${VERSION}" --no-git-tag-version
+
+      - name: Prepare extension server bundle
+        run: |
+          # Use server/ directory instead of node_modules/ to avoid .gitignore issues
+          # The wasm package must be in node_modules relative to server.js for Node resolution
+          mkdir -p packages/vscode-extension/server/@514labs/moose-lsp/node_modules/@514labs/moose-sql-validator-wasm
+
+          # Copy bundled lsp-server (dependencies are bundled in server.js)
+          cp packages/lsp-server/dist/server.js packages/vscode-extension/server/@514labs/moose-lsp/
+          cp packages/lsp-server/dist/server.js.map packages/vscode-extension/server/@514labs/moose-lsp/
+          cp -r packages/lsp-server/dist/data packages/vscode-extension/server/@514labs/moose-lsp/
+
+          # Create minimal package.json (deps are bundled, only wasm is external)
+          node -e "
+            const pkg = require('./packages/lsp-server/package.json');
+            pkg.dependencies = {'@514labs/moose-sql-validator-wasm': '*'};
+            pkg.main = 'server.js';
+            require('fs').writeFileSync('packages/vscode-extension/server/@514labs/moose-lsp/package.json', JSON.stringify(pkg, null, 2));
+          "
+
+          # Copy sql-validator-wasm into node_modules for Node.js module resolution
+          cp -r packages/lsp-server/dist/node_modules/@514labs/moose-sql-validator-wasm/* packages/vscode-extension/server/@514labs/moose-lsp/node_modules/@514labs/moose-sql-validator-wasm/
+
+      - name: Install vsce
+        run: npm install -g @vscode/vsce
+
+      - name: Package extension
+        run: |
+          cd packages/vscode-extension
+          vsce package --no-dependencies
+
+      - name: Upload npm build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: build-output
+          name: npm-build-output
           path: |
             packages/lsp-server/dist/
             packages/lsp-server/package.json
             packages/sql-validator-wasm/dist/
             packages/sql-validator-wasm/pkg/
             packages/sql-validator-wasm/package.json
-            packages/vscode-extension/
-          retention-days: 1
+          retention-days: 3
+
+      - name: Upload extension vsix
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-vsix
+          path: packages/vscode-extension/*.vsix
+          retention-days: 3
 
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -97,7 +157,7 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: build-output
+          name: npm-build-output
 
       - uses: actions/setup-node@v4
         with:
@@ -105,14 +165,15 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - name: Publish @514labs/moose-lsp to npm
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           cd lsp-server
-          npm version "${{ needs.build.outputs.version }}" --no-git-tag-version
+          npm version "${VERSION}" --no-git-tag-version
           # Remove bundled workspace dependency (it's included in dist/node_modules)
           node -e "const pkg = require('./package.json'); delete pkg.dependencies['@514labs/moose-sql-validator-wasm']; require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2))"
           npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-vscode:
     needs: build
@@ -121,54 +182,20 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Download build artifacts
+      - name: Download extension vsix
         uses: actions/download-artifact@v4
         with:
-          name: build-output
+          name: extension-vsix
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Update extension version
-        run: |
-          cd vscode-extension
-          npm version "${{ needs.build.outputs.version }}" --no-git-tag-version
-
-      - name: Prepare extension server bundle
-        run: |
-          # Use server/ directory instead of node_modules/ to avoid .gitignore issues
-          # The wasm package must be in node_modules relative to server.js for Node resolution
-          mkdir -p vscode-extension/server/@514labs/moose-lsp/node_modules/@514labs/moose-sql-validator-wasm
-
-          # Copy bundled lsp-server (dependencies are bundled in server.js)
-          cp lsp-server/dist/server.js vscode-extension/server/@514labs/moose-lsp/
-          cp lsp-server/dist/server.js.map vscode-extension/server/@514labs/moose-lsp/
-          cp -r lsp-server/dist/data vscode-extension/server/@514labs/moose-lsp/
-
-          # Create minimal package.json (deps are bundled, only wasm is external)
-          node -e "
-            const pkg = require('./lsp-server/package.json');
-            pkg.dependencies = {'@514labs/moose-sql-validator-wasm': '*'};
-            pkg.main = 'server.js';
-            require('fs').writeFileSync('vscode-extension/server/@514labs/moose-lsp/package.json', JSON.stringify(pkg, null, 2));
-          "
-
-          # Copy sql-validator-wasm into node_modules for Node.js module resolution
-          cp -r lsp-server/dist/node_modules/@514labs/moose-sql-validator-wasm/* vscode-extension/server/@514labs/moose-lsp/node_modules/@514labs/moose-sql-validator-wasm/
-
-      - name: Install vsce and ovsx
-        run: npm install -g @vscode/vsce ovsx
-
-      - name: Package extension
-        run: |
-          cd vscode-extension
-          vsce package --no-dependencies
+      - name: Install vsce
+        run: npm install -g @vscode/vsce
 
       - name: Publish to VS Code Marketplace
-        run: |
-          cd vscode-extension
-          vsce publish --no-dependencies
+        run: vsce publish --packagePath *.vsix
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
@@ -179,49 +206,19 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Download build artifacts
+      - name: Download extension vsix
         uses: actions/download-artifact@v4
         with:
-          name: build-output
+          name: extension-vsix
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Update extension version
-        run: |
-          cd vscode-extension
-          npm version "${{ needs.build.outputs.version }}" --no-git-tag-version
-
-      - name: Prepare extension server bundle
-        run: |
-          # Use server/ directory instead of node_modules/ to avoid .gitignore issues
-          # The wasm package must be in node_modules relative to server.js for Node resolution
-          mkdir -p vscode-extension/server/@514labs/moose-lsp/node_modules/@514labs/moose-sql-validator-wasm
-
-          # Copy bundled lsp-server (dependencies are bundled in server.js)
-          cp lsp-server/dist/server.js vscode-extension/server/@514labs/moose-lsp/
-          cp lsp-server/dist/server.js.map vscode-extension/server/@514labs/moose-lsp/
-          cp -r lsp-server/dist/data vscode-extension/server/@514labs/moose-lsp/
-
-          # Create minimal package.json (deps are bundled, only wasm is external)
-          node -e "
-            const pkg = require('./lsp-server/package.json');
-            pkg.dependencies = {'@514labs/moose-sql-validator-wasm': '*'};
-            pkg.main = 'server.js';
-            require('fs').writeFileSync('vscode-extension/server/@514labs/moose-lsp/package.json', JSON.stringify(pkg, null, 2));
-          "
-
-          # Copy sql-validator-wasm into node_modules for Node.js module resolution
-          cp -r lsp-server/dist/node_modules/@514labs/moose-sql-validator-wasm/* vscode-extension/server/@514labs/moose-lsp/node_modules/@514labs/moose-sql-validator-wasm/
-
       - name: Install ovsx
         run: npm install -g ovsx
 
-      - name: Package and publish to Open VSX
-        run: |
-          cd vscode-extension
-          npx vsce package --no-dependencies
-          ovsx publish *.vsix
+      - name: Publish to Open VSX
+        run: ovsx publish *.vsix
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
