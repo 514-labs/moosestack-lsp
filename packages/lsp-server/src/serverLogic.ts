@@ -26,7 +26,22 @@ export function shouldValidateFile(
   mooseProjectRoot: string | null,
 ): boolean {
   if (!mooseProjectRoot) return false;
-  return filePath.startsWith(mooseProjectRoot) && filePath.endsWith('.ts');
+  if (!filePath.startsWith(mooseProjectRoot)) return false;
+  return filePath.endsWith('.ts') || filePath.endsWith('.py');
+}
+
+/**
+ * Determines if a file is a TypeScript file
+ */
+export function isTypeScriptFile(filePath: string): boolean {
+  return filePath.endsWith('.ts') || filePath.endsWith('.tsx');
+}
+
+/**
+ * Determines if a file is a Python file
+ */
+export function isPythonFile(filePath: string): boolean {
+  return filePath.endsWith('.py');
 }
 
 /**
