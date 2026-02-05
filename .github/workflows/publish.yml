@@ -195,7 +195,14 @@ jobs:
         run: npm install -g @vscode/vsce
 
       - name: Publish to VS Code Marketplace
-        run: vsce publish --packagePath *.vsix
+        run: |
+          shopt -s nullglob
+          vsix_files=( *.vsix )
+          if [ "${#vsix_files[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one .vsix file, found ${#vsix_files[@]}: ${vsix_files[*]}"
+            exit 1
+          fi
+          vsce publish --packagePath "${vsix_files[0]}"
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
@@ -219,6 +226,13 @@ jobs:
         run: npm install -g ovsx
 
       - name: Publish to Open VSX
-        run: ovsx publish *.vsix
+        run: |
+          shopt -s nullglob
+          vsix_files=( *.vsix )
+          if [ "${#vsix_files[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one .vsix file, found ${#vsix_files[@]}: ${vsix_files[*]}"
+            exit 1
+          fi
+          ovsx publish "${vsix_files[0]}"
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
