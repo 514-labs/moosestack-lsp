@@ -133,22 +133,31 @@ jobs:
           # Use server/ directory instead of node_modules/ to avoid .gitignore issues
           # The wasm package must be in node_modules relative to server.js for Node resolution
           mkdir -p packages/vscode-extension/server/@514labs/moose-lsp/node_modules/@514labs/moose-sql-validator-wasm
+          mkdir -p packages/vscode-extension/server/@514labs/moose-lsp/node_modules/web-tree-sitter
 
           # Copy bundled lsp-server (dependencies are bundled in server.js)
           cp packages/lsp-server/dist/server.js packages/vscode-extension/server/@514labs/moose-lsp/
           cp packages/lsp-server/dist/server.js.map packages/vscode-extension/server/@514labs/moose-lsp/
           cp -r packages/lsp-server/dist/data packages/vscode-extension/server/@514labs/moose-lsp/
 
-          # Create minimal package.json (deps are bundled, only wasm is external)
+          # Copy tree-sitter-python grammar WASM (loaded via __dirname in pythonSqlExtractor)
+          cp packages/lsp-server/dist/tree-sitter-python.wasm packages/vscode-extension/server/@514labs/moose-lsp/
+
+          # Create minimal package.json (deps are bundled, only wasm packages are external)
           node -e "
             const pkg = require('./packages/lsp-server/package.json');
-            pkg.dependencies = {'@514labs/moose-sql-validator-wasm': '*'};
+            pkg.dependencies = {'@514labs/moose-sql-validator-wasm': '*', 'web-tree-sitter': '*'};
             pkg.main = 'server.js';
             require('fs').writeFileSync('packages/vscode-extension/server/@514labs/moose-lsp/package.json', JSON.stringify(pkg, null, 2));
           "
 
           # Copy sql-validator-wasm into node_modules for Node.js module resolution
           cp -r packages/lsp-server/dist/node_modules/@514labs/moose-sql-validator-wasm/* packages/vscode-extension/server/@514labs/moose-lsp/node_modules/@514labs/moose-sql-validator-wasm/
+
+          # Copy web-tree-sitter into node_modules (external dep needed for Python parser)
+          cp packages/lsp-server/node_modules/web-tree-sitter/package.json packages/vscode-extension/server/@514labs/moose-lsp/node_modules/web-tree-sitter/
+          cp packages/lsp-server/node_modules/web-tree-sitter/web-tree-sitter.cjs packages/vscode-extension/server/@514labs/moose-lsp/node_modules/web-tree-sitter/
+          cp packages/lsp-server/node_modules/web-tree-sitter/web-tree-sitter.wasm packages/vscode-extension/server/@514labs/moose-lsp/node_modules/web-tree-sitter/
 
       - name: Install vsce
         run: npm install -g @vscode/vsce

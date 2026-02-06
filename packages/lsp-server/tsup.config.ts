@@ -45,6 +45,10 @@ async function copyAssets() {
       path.join(distDir, 'tree-sitter-python.wasm'),
     );
     console.log('Copied tree-sitter-python.wasm to dist/');
+  } else {
+    throw new Error(
+      `tree-sitter-python.wasm not found at ${treeSitterPythonWasm}. Ensure tree-sitter-python is installed.`,
+    );
   }
 
   // Bundle sql-validator-wasm into node_modules for standalone npm package
