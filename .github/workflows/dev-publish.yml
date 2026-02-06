@@ -37,6 +37,11 @@ jobs:
           # stable release (even minor) will be higher than all pre-releases.
           # Add 1 to bump the minor and bitwise-OR with 1 to force DEV_MINOR to be odd (pre-release).
           DEV_MINOR=$(( (MINOR + 1) | 1 ))
+          # DEV_PATCH encodes PR_NUMBER, RUN_NUMBER, and RUN_ATTEMPT into a single integer:
+          #   PPPP_RRR_A (decimal digits)
+          #   PR_NUMBER * 10000  → higher-order digits (assumes PR < 10000)
+          #   RUN_NUMBER * 10    → middle digits       (assumes RUN < 1000)
+          #   RUN_ATTEMPT        → final digit          (assumes ATTEMPT < 10)
           DEV_PATCH=$(( PR_NUMBER * 10000 + RUN_NUMBER * 10 + RUN_ATTEMPT ))
           DEV_VERSION="${MAJOR}.${DEV_MINOR}.${DEV_PATCH}"
           echo "version=${DEV_VERSION}" >> "$GITHUB_OUTPUT"
