@@ -27,7 +27,16 @@ jobs:
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           CURRENT_VERSION=$(node -p "require('./packages/lsp-server/package.json').version")
-          DEV_VERSION="${CURRENT_VERSION}-dev.${PR_NUMBER}.${RUN_NUMBER}.${RUN_ATTEMPT}"
+          MAJOR=$(echo "${CURRENT_VERSION}" | cut -d. -f1)
+          MINOR=$(echo "${CURRENT_VERSION}" | cut -d. -f2)
+
+          # VS Code Marketplace only supports major.minor.patch (no semver prerelease tags).
+          # Follow the odd/even minor convention: even minor = stable, odd minor = pre-release.
+          # This ensures pre-release versions are always higher than stable, and the next
+          # stable release (even minor) will be higher than all pre-releases.
+          DEV_MINOR=$(( (MINOR + 1) | 1 ))
+          DEV_PATCH=$(( PR_NUMBER * 10000 + RUN_NUMBER * 10 + RUN_ATTEMPT ))
+          DEV_VERSION="${MAJOR}.${DEV_MINOR}.${DEV_PATCH}"
           echo "version=${DEV_VERSION}" >> "$GITHUB_OUTPUT"
           echo "Dev version: ${DEV_VERSION}"
 
