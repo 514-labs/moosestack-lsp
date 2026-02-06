@@ -64,7 +64,7 @@
   },
   "extensionDependencies": [],
   "devDependencies": {
-    "@types/node": "^20.19.32",
+    "@types/node": "^24.10.11",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.7.1",
     "tsup": "^8.5.1",

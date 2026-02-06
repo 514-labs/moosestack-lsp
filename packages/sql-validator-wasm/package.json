@@ -33,7 +33,7 @@
     "clean": "rm -rf dist pkg coverage"
   },
   "devDependencies": {
-    "@types/node": "^20.19.32",
+    "@types/node": "^24.10.11",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3"
   }
