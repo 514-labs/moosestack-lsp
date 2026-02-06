@@ -1,11 +1,16 @@
 import assert from 'node:assert';
-import { describe, it } from 'node:test';
+import { before, describe, it } from 'node:test';
 import {
   extractAllPythonSqlLocations,
   extractPythonSqlLocations,
+  initParser,
 } from './pythonSqlExtractor';
 
 describe('pythonSqlExtractor', () => {
+  before(async () => {
+    await initParser();
+  });
+
   describe('extractPythonSqlLocations', () => {
     it('extracts sql() function call with simple string', () => {
       const code = `

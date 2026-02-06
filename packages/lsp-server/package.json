@@ -37,14 +37,14 @@
   "dependencies": {
     "@514labs/moose-sql-validator-wasm": "workspace:*",
     "glob": "^10.5.0",
-    "tree-sitter": "^0.25.0",
-    "tree-sitter-python": "^0.25.0",
+    "web-tree-sitter": "^0.25.0",
     "typescript": "^5.9.3",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.12"
   },
   "devDependencies": {
     "@types/node": "^20.19.32",
+    "tree-sitter-python": "^0.25.0",
     "tsup": "^8.5.1"
   }
 }

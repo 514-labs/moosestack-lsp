@@ -32,12 +32,6 @@ importers:
       glob:
         specifier: ^10.5.0
         version: 10.5.0
-      tree-sitter:
-        specifier: ^0.25.0
-        version: 0.25.0
-      tree-sitter-python:
-        specifier: ^0.25.0
-        version: 0.25.0(tree-sitter@0.25.0)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -47,10 +41,16 @@ importers:
       vscode-languageserver-textdocument:
         specifier: ^1.0.12
         version: 1.0.12
+      web-tree-sitter:
+        specifier: ^0.25.0
+        version: 0.25.10
     devDependencies:
       '@types/node':
         specifier: ^20.19.32
         version: 20.19.32
+      tree-sitter-python:
+        specifier: ^0.25.0
+        version: 0.25.0(tree-sitter@0.25.0)
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(typescript@5.9.3)(yaml@2.8.2)
@@ -1982,6 +1982,14 @@ packages:
     resolution: {integrity: sha512-woByF3PDpkHFUreUa7Hos7+pUWdeWMXRd26+ZX2A8cFx6v/JPTtd4/uN0/jB6XQHYaOlHbio03NTHCqrgG5n7g==}
     hasBin: true
 
+  web-tree-sitter@0.25.10:
+    resolution: {integrity: sha512-Y09sF44/13XvgVKgO2cNDw5rGk6s26MgoZPXLESvMXeefBf7i6/73eFurre0IsTW6E14Y0ArIzhUMmjoc7xyzA==}
+    peerDependencies:
+      '@types/emscripten': ^1.40.0
+    peerDependenciesMeta:
+      '@types/emscripten':
+        optional: true
+
   whatwg-encoding@3.1.1:
     resolution: {integrity: sha512-6qN4hJdMwfYBtE3YBTTHhoeuUrDBPZmbQaxWAqSALV/MeEnR5z1xd8UKud2RAkFoPkmB+hli1TZSnyi84xz1vQ==}
     engines: {node: '>=18'}
@@ -3873,6 +3881,7 @@ snapshots:
     dependencies:
       node-addon-api: 8.5.0
       node-gyp-build: 4.8.4
+    optional: true
 
   ts-interface-checker@0.1.13: {}
 
@@ -3978,6 +3987,8 @@ snapshots:
   vscode-languageserver@9.0.1:
     dependencies:
       vscode-languageserver-protocol: 3.17.5
+
+  web-tree-sitter@0.25.10: {}
 
   whatwg-encoding@3.1.1:
     dependencies:
