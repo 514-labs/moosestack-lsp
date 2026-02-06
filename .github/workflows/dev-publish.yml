@@ -78,9 +78,9 @@ jobs:
           )"
 
           # Update existing comment or create a new one
-          EXISTING=$(gh pr view "${PR_NUMBER}" --repo "${{ github.repository }}" --json comments --jq '.comments[] | select(.body | contains("<!-- dev-build-comment -->")) | .url' | tail -1)
-          if [ -n "${EXISTING}" ]; then
-            COMMENT_ID=$(basename "${EXISTING}")
+          COMMENT_URL=$(gh pr view "${PR_NUMBER}" --repo "${{ github.repository }}" --json comments --jq '.comments[] | select(.body | contains("<!-- dev-build-comment -->")) | .url' | tail -1)
+          COMMENT_ID=${COMMENT_URL##*issuecomment-}
+          if [ -n "${COMMENT_ID}" ]; then
             gh api repos/${{ github.repository }}/issues/comments/"${COMMENT_ID}" -X PATCH -f body="${BODY}"
           else
             gh pr comment "${PR_NUMBER}" --repo "${{ github.repository }}" --body "${BODY}"
