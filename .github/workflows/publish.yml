@@ -109,9 +109,9 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           npm version "${VERSION}" --no-git-tag-version
-          cd packages/sql-validator-wasm && npm version "${VERSION}" --no-git-tag-version && cd ../..
-          cd packages/lsp-server && npm version "${VERSION}" --no-git-tag-version && cd ../..
-          cd packages/vscode-extension && npm version "${VERSION}" --no-git-tag-version && cd ../..
+          (cd packages/sql-validator-wasm && npm version "${VERSION}" --no-git-tag-version)
+          (cd packages/lsp-server && npm version "${VERSION}" --no-git-tag-version)
+          (cd packages/vscode-extension && npm version "${VERSION}" --no-git-tag-version)
 
       - name: Build all packages
         run: pnpm build
@@ -188,6 +188,10 @@ jobs:
       pre-release: ${{ steps.settings.outputs.pre-release }}
       npm-tag: ${{ steps.settings.outputs.npm-tag }}
 
+  # The publish-* if conditions use github.event.inputs which is only defined for
+  # workflow_dispatch. For workflow_call and release triggers it's undefined, so
+  # the != 'false' check evaluates to true — meaning all publish steps always run.
+  # This is intentional: only workflow_dispatch allows selectively skipping steps.
   publish-npm:
     needs: build
     if: ${{ github.event.inputs.publish-npm != 'false' }}
