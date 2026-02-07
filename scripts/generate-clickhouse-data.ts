@@ -108,6 +108,7 @@ function expandAggregateFunctionsWithCombinators(
         arguments: '',
         returnedValue: '',
         examples: '',
+        categories: '',
         description: baseFunction.description
           ? `${baseFunction.description.trim()}\n\n${combinatorDescription}`
           : combinatorDescription,
@@ -115,7 +116,9 @@ function expandAggregateFunctionsWithCombinators(
     }
   }
 
-  return expandedFunctions;
+  return expandedFunctions.sort((a, b) =>
+    a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }),
+  );
 }
 
 function expandKeywordsWithFirstWordAliases(keywords: string[]): string[] {
@@ -140,7 +143,7 @@ function expandKeywordsWithFirstWordAliases(keywords: string[]): string[] {
   }
 
   return [...deduped.values()].sort((a, b) =>
-    a.localeCompare(b, undefined, { sensitivity: 'base' }),
+    a.localeCompare(b, 'en', { sensitivity: 'base' }),
   );
 }
 
