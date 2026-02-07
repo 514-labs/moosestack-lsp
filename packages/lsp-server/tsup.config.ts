@@ -30,6 +30,27 @@ async function copyAssets() {
     console.log(`Copied ${files.length} data files to dist/data`);
   }
 
+  // Copy tree-sitter-python WASM for web-tree-sitter
+  const treeSitterPythonWasm = path.join(
+    __dirname,
+    'node_modules',
+    'tree-sitter-python',
+    'tree-sitter-python.wasm',
+  );
+  const distDir = path.join(__dirname, 'dist');
+  if (fs.existsSync(treeSitterPythonWasm)) {
+    fs.mkdirSync(distDir, { recursive: true });
+    fs.copyFileSync(
+      treeSitterPythonWasm,
+      path.join(distDir, 'tree-sitter-python.wasm'),
+    );
+    console.log('Copied tree-sitter-python.wasm to dist/');
+  } else {
+    throw new Error(
+      `tree-sitter-python.wasm not found at ${treeSitterPythonWasm}. Ensure tree-sitter-python is installed.`,
+    );
+  }
+
   // Bundle sql-validator-wasm into node_modules for standalone npm package
   const wasmPkgSrc = path.join(__dirname, '..', 'sql-validator-wasm');
   const wasmPkgDest = path.join(
@@ -75,7 +96,7 @@ export default defineConfig([
     bundle: true,
     shims: true,
     // Don't bundle the wasm package - it's copied separately with its binary
-    external: ['@514labs/moose-sql-validator-wasm'],
+    external: ['@514labs/moose-sql-validator-wasm', 'web-tree-sitter'],
     noExternal: [
       'glob',
       'vscode-languageserver',

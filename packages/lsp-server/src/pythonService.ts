@@ -4,6 +4,7 @@ import { glob } from 'glob';
 import {
   extractAllPythonSqlLocations,
   extractPythonSqlLocations,
+  initParser,
 } from './pythonSqlExtractor';
 import type { SqlLocation } from './sqlLocations';
 
@@ -62,6 +63,9 @@ export function createPythonService(): PythonService {
     async initialize(root: string): Promise<void> {
       try {
         projectRoot = root;
+
+        // Initialize the web-tree-sitter parser (WASM-based)
+        await initParser();
 
         // Find all Python files in project (excluding common ignored directories)
         const pythonFiles = await glob('**/*.py', {

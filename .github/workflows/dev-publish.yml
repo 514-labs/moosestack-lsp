@@ -1,0 +1,92 @@
+name: Dev Publish
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: dev-publish-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  compute-version:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute dev version
+        id: version
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          CURRENT_VERSION=$(node -p "require('./packages/lsp-server/package.json').version")
+          MAJOR=$(echo "${CURRENT_VERSION}" | cut -d. -f1)
+          MINOR=$(echo "${CURRENT_VERSION}" | cut -d. -f2)
+
+          # VS Code Marketplace only supports major.minor.patch (no semver prerelease tags).
+          # Follow the odd/even minor convention: even minor = stable, odd minor = pre-release.
+          # This ensures pre-release versions are always higher than stable, and the next
+          # stable release (even minor) will be higher than all pre-releases.
+          # Add 1 to bump the minor and bitwise-OR with 1 to force DEV_MINOR to be odd (pre-release).
+          DEV_MINOR=$(( (MINOR + 1) | 1 ))
+          # DEV_PATCH encodes PR_NUMBER, RUN_NUMBER, and RUN_ATTEMPT into a single integer:
+          #   PPPP_RRRRR_A (decimal digits)
+          #   PR_NUMBER * 1000000  → higher-order digits (assumes PR < 10000)
+          #   RUN_NUMBER * 10      → middle digits       (assumes RUN < 100000)
+          #   RUN_ATTEMPT          → final digit          (assumes ATTEMPT < 10)
+          DEV_PATCH=$(( PR_NUMBER * 1000000 + RUN_NUMBER * 10 + RUN_ATTEMPT ))
+          DEV_VERSION="${MAJOR}.${DEV_MINOR}.${DEV_PATCH}"
+          echo "version=${DEV_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Dev version: ${DEV_VERSION}"
+
+  publish:
+    needs: compute-version
+    uses: ./.github/workflows/publish.yml
+    with:
+      version: ${{ needs.compute-version.outputs.version }}
+      npm-tag: dev
+      pre-release: true
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
+
+  comment:
+    needs: [compute-version, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Post or update PR comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.compute-version.outputs.version }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          BODY="$(cat <<EOF
+          **Dev Build Published**
+
+          | Package | Version | Install |
+          |---------|---------|---------|
+          | npm | \`${VERSION}\` | \`npm install @514labs/moose-lsp@${VERSION}\` |
+          | VS Code Extension | \`${VERSION}\` | Search "MooseStack LSP" → Switch to Pre-Release Version |
+          <!-- dev-build-comment -->
+          EOF
+          )"
+
+          # Update existing comment or create a new one
+          COMMENT_URL=$(gh pr view "${PR_NUMBER}" --repo "${{ github.repository }}" --json comments --jq '.comments[] | select(.body | contains("<!-- dev-build-comment -->")) | .url' | tail -1)
+          COMMENT_ID=${COMMENT_URL##*issuecomment-}
+          if [ -n "${COMMENT_ID}" ]; then
+            gh api repos/${{ github.repository }}/issues/comments/"${COMMENT_ID}" -X PATCH -f body="${BODY}"
+          else
+            gh pr comment "${PR_NUMBER}" --repo "${{ github.repository }}" --body "${BODY}"
+          fi

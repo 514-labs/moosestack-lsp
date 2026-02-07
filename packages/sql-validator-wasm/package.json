@@ -1,6 +1,6 @@
 {
   "name": "@514labs/moose-sql-validator-wasm",
-  "version": "0.1.0",
+  "version": "1.2.0",
   "description": "WASM SQL validator for ClickHouse dialect",
   "license": "MIT",
   "repository": {
@@ -33,7 +33,7 @@
     "clean": "rm -rf dist pkg coverage"
   },
   "devDependencies": {
-    "@types/node": "^20.19.32",
+    "@types/node": "^24.10.11",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3"
   }

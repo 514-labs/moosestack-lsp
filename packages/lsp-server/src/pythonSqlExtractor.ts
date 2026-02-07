@@ -1,18 +1,47 @@
-import Parser from 'tree-sitter';
-import Python from 'tree-sitter-python';
+import * as path from 'node:path';
+import {
+  Language,
+  Parser,
+  type Point,
+  type Node as SyntaxNode,
+} from 'web-tree-sitter';
 import type { SqlLocation } from './sqlLocations';
 
-// Initialize tree-sitter parser with Python grammar
-const parser = new Parser();
-// Cast to any to work around type compatibility issues between tree-sitter and tree-sitter-python
-parser.setLanguage(Python as unknown as Parser.Language);
+let parser: Parser | null = null;
+
+/**
+ * Initialize the web-tree-sitter parser with the Python grammar.
+ * Must be called before any extraction functions.
+ */
+export async function initParser(): Promise<void> {
+  if (parser) return;
+
+  await Parser.init();
+  const p = new Parser();
+
+  // Load the Python WASM grammar from dist/ (copied during build)
+  const wasmPath = path.join(__dirname, 'tree-sitter-python.wasm');
+  const Python = await Language.load(wasmPath);
+  p.setLanguage(Python);
+  parser = p;
+}
+
+function getParser(): Parser {
+  if (!parser) {
+    throw new Error(
+      'Parser not initialized. Call initParser() before using extraction functions.',
+    );
+  }
+  return parser;
+}
 
 /**
  * Check if the file imports from moose_lib.
  * This is used to filter out sql() calls that aren't from moose-lib.
  */
-function fileImportsMooseLib(rootNode: Parser.SyntaxNode): boolean {
+function fileImportsMooseLib(rootNode: SyntaxNode): boolean {
   for (const child of rootNode.children) {
+    if (!child) continue;
     // Handle: import moose_lib
     if (child.type === 'import_statement') {
       const moduleName = child.childForFieldName('name');
@@ -48,7 +77,7 @@ function fileImportsMooseLib(rootNode: Parser.SyntaxNode): boolean {
  * Check if a function call is a `sql()` call from moose-lib.
  * We look for calls where the function name is 'sql'.
  */
-function isSqlFunctionCall(node: Parser.SyntaxNode): boolean {
+function isSqlFunctionCall(node: SyntaxNode): boolean {
   if (node.type !== 'call') return false;
 
   const functionNode = node.childForFieldName('function');
@@ -74,16 +103,17 @@ function isSqlFunctionCall(node: Parser.SyntaxNode): boolean {
  * Extract the SQL string from a sql() function call arguments.
  * Handles both regular strings and f-strings.
  */
-function extractSqlFromCall(callNode: Parser.SyntaxNode): {
+function extractSqlFromCall(callNode: SyntaxNode): {
   text: string;
-  startPosition: Parser.Point;
-  endPosition: Parser.Point;
+  startPosition: Point;
+  endPosition: Point;
 } | null {
   const arguments_ = callNode.childForFieldName('arguments');
   if (!arguments_) return null;
 
   // Get the first argument (the SQL string)
   for (const child of arguments_.children) {
+    if (!child) continue;
     if (
       child.type === 'string' ||
       child.type === 'concatenated_string' ||
@@ -107,7 +137,7 @@ function extractSqlFromCall(callNode: Parser.SyntaxNode): {
  * Extract text content from a string node (regular string or f-string).
  * Converts f-string interpolations to ${...} placeholders.
  */
-function extractStringContent(node: Parser.SyntaxNode): string | null {
+function extractStringContent(node: SyntaxNode): string | null {
   const text = node.text;
   const isFString = /^f['"]/.test(text);
 
@@ -130,6 +160,7 @@ function extractStringContent(node: Parser.SyntaxNode): string | null {
     // Handle concatenated strings: "SELECT " "* FROM users"
     let result = '';
     for (const child of node.children) {
+      if (!child) continue;
       if (child.type === 'string' || child.type === 'formatted_string') {
         const content = extractStringContent(child);
         if (content !== null) {
@@ -254,7 +285,7 @@ function looksLikeSql(text: string): boolean {
  * Check if a formatted string contains :col format specifier.
  * This is a moose-lib specific pattern for SQL columns.
  */
-function hasColFormatSpecifier(node: Parser.SyntaxNode): boolean {
+function hasColFormatSpecifier(node: SyntaxNode): boolean {
   const text = node.text;
   // Look for patterns like {var:col} or {Model.field:col}
   return /:col\s*\}/.test(text);
@@ -266,8 +297,8 @@ function hasColFormatSpecifier(node: Parser.SyntaxNode): boolean {
 function createSqlLocation(
   filePath: string,
   text: string,
-  startPosition: Parser.Point,
-  endPosition: Parser.Point,
+  startPosition: Point,
+  endPosition: Point,
 ): SqlLocation {
   return {
     id: `${filePath}:${startPosition.row + 1}:${startPosition.column + 1}`,
@@ -292,12 +323,13 @@ export function extractPythonSqlLocations(
 ): SqlLocation[] {
   const locations: SqlLocation[] = [];
 
-  const tree = parser.parse(sourceCode);
+  const tree = getParser().parse(sourceCode);
+  if (!tree) return locations;
 
   // Only process sql() calls if the file imports from moose_lib
   const hasMooseImport = fileImportsMooseLib(tree.rootNode);
 
-  function visit(node: Parser.SyntaxNode): void {
+  function visit(node: SyntaxNode): void {
     // Check for sql() function calls (only if file imports moose_lib)
     if (hasMooseImport && isSqlFunctionCall(node)) {
       const sqlContent = extractSqlFromCall(node);
@@ -335,7 +367,7 @@ export function extractPythonSqlLocations(
 
     // Recursively visit children
     for (const child of node.children) {
-      visit(child);
+      if (child) visit(child);
     }
   }
 
@@ -358,12 +390,4 @@ export function extractAllPythonSqlLocations(
   }
 
   return allLocations;
-}
-
-/**
- * Get the tree-sitter parser instance.
- * Useful for tests or advanced usage.
- */
-export function getParser(): Parser {
-  return parser;
 }

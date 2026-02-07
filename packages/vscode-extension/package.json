@@ -2,7 +2,7 @@
   "name": "moosestack-lsp",
   "displayName": "MooseStack LSP",
   "description": "Language Server for Moose projects. Provides real-time SQL syntax validation, completions, and hover documentation for ClickHouse SQL in TypeScript and Python files.",
-  "version": "0.1.0",
+  "version": "1.2.0",
   "publisher": "514-labs",
   "icon": "icon.png",
   "engines": {
@@ -64,8 +64,8 @@
   },
   "extensionDependencies": [],
   "devDependencies": {
-    "@types/node": "^20.19.32",
-    "@types/vscode": "^1.109.0",
+    "@types/node": "^24.10.11",
+    "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.7.1",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3"

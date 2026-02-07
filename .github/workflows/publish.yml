@@ -24,9 +24,29 @@ on:
         required: false
         type: boolean
         default: true
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      npm-tag:
+        required: false
+        type: string
+        default: "latest"
+      pre-release:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      NPM_TOKEN:
+        required: true
+      VSCE_PAT:
+        required: true
+      OVSX_PAT:
+        required: true
 
 concurrency:
-  group: publish
+  group: publish-${{ inputs.version || github.event.release.tag_name }}
   cancel-in-progress: false
 
 jobs:
@@ -45,7 +65,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
           registry-url: "https://registry.npmjs.org"
 
@@ -60,17 +80,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Build all packages
-        run: pnpm build
-
       - name: Get version
         id: version
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_VERSION: ${{ inputs.version }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          if [ "${EVENT_NAME}" == "workflow_dispatch" ]; then
+          if [ -n "${INPUT_VERSION}" ]; then
             VERSION="${INPUT_VERSION}"
           else
             VERSION="${RELEASE_TAG}"
@@ -88,28 +104,49 @@ jobs:
             exit 1
           fi
 
-      - name: Update extension version
+      - name: Set version across all packages
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          cd packages/vscode-extension
           npm version "${VERSION}" --no-git-tag-version
+          (cd packages/sql-validator-wasm && npm version "${VERSION}" --no-git-tag-version)
+          (cd packages/lsp-server && npm version "${VERSION}" --no-git-tag-version)
+          (cd packages/vscode-extension && npm version "${VERSION}" --no-git-tag-version)
+
+      - name: Build all packages
+        run: pnpm build
+
+      - name: Resolve publish settings
+        id: settings
+        env:
+          INPUT_PRE_RELEASE: ${{ inputs.pre-release }}
+          INPUT_NPM_TAG: ${{ inputs.npm-tag }}
+        run: |
+          PRE_RELEASE="${INPUT_PRE_RELEASE:-false}"
+          NPM_TAG="${INPUT_NPM_TAG:-latest}"
+          echo "pre-release=${PRE_RELEASE}" >> "$GITHUB_OUTPUT"
+          echo "npm-tag=${NPM_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Pre-release: ${PRE_RELEASE}, npm tag: ${NPM_TAG}"
 
       - name: Prepare extension server bundle
         run: |
           # Use server/ directory instead of node_modules/ to avoid .gitignore issues
           # The wasm package must be in node_modules relative to server.js for Node resolution
           mkdir -p packages/vscode-extension/server/@514labs/moose-lsp/node_modules/@514labs/moose-sql-validator-wasm
+          mkdir -p packages/vscode-extension/server/@514labs/moose-lsp/node_modules/web-tree-sitter
 
           # Copy bundled lsp-server (dependencies are bundled in server.js)
           cp packages/lsp-server/dist/server.js packages/vscode-extension/server/@514labs/moose-lsp/
           cp packages/lsp-server/dist/server.js.map packages/vscode-extension/server/@514labs/moose-lsp/
           cp -r packages/lsp-server/dist/data packages/vscode-extension/server/@514labs/moose-lsp/
 
-          # Create minimal package.json (deps are bundled, only wasm is external)
+          # Copy tree-sitter-python grammar WASM (loaded via __dirname in pythonSqlExtractor)
+          cp packages/lsp-server/dist/tree-sitter-python.wasm packages/vscode-extension/server/@514labs/moose-lsp/
+
+          # Create minimal package.json (deps are bundled, only wasm packages are external)
           node -e "
             const pkg = require('./packages/lsp-server/package.json');
-            pkg.dependencies = {'@514labs/moose-sql-validator-wasm': '*'};
+            pkg.dependencies = {'@514labs/moose-sql-validator-wasm': '*', 'web-tree-sitter': '*'};
             pkg.main = 'server.js';
             require('fs').writeFileSync('packages/vscode-extension/server/@514labs/moose-lsp/package.json', JSON.stringify(pkg, null, 2));
           "
@@ -117,13 +154,24 @@ jobs:
           # Copy sql-validator-wasm into node_modules for Node.js module resolution
           cp -r packages/lsp-server/dist/node_modules/@514labs/moose-sql-validator-wasm/* packages/vscode-extension/server/@514labs/moose-lsp/node_modules/@514labs/moose-sql-validator-wasm/
 
+          # Copy web-tree-sitter into node_modules (external dep needed for Python parser)
+          cp packages/lsp-server/node_modules/web-tree-sitter/package.json packages/vscode-extension/server/@514labs/moose-lsp/node_modules/web-tree-sitter/
+          cp packages/lsp-server/node_modules/web-tree-sitter/web-tree-sitter.cjs packages/vscode-extension/server/@514labs/moose-lsp/node_modules/web-tree-sitter/
+          cp packages/lsp-server/node_modules/web-tree-sitter/web-tree-sitter.wasm packages/vscode-extension/server/@514labs/moose-lsp/node_modules/web-tree-sitter/
+
       - name: Install vsce
         run: npm install -g @vscode/vsce
 
       - name: Package extension
+        env:
+          PRE_RELEASE: ${{ steps.settings.outputs.pre-release }}
         run: |
           cd packages/vscode-extension
-          vsce package --no-dependencies
+          if [ "${PRE_RELEASE}" == "true" ]; then
+            vsce package --no-dependencies --pre-release
+          else
+            vsce package --no-dependencies
+          fi
 
       - name: Upload npm build artifacts
         uses: actions/upload-artifact@v4
@@ -146,10 +194,16 @@ jobs:
 
     outputs:
       version: ${{ steps.version.outputs.version }}
+      pre-release: ${{ steps.settings.outputs.pre-release }}
+      npm-tag: ${{ steps.settings.outputs.npm-tag }}
 
+  # The publish-* if conditions use github.event.inputs which is only defined for
+  # workflow_dispatch. For workflow_call and release triggers it's undefined, so
+  # the != 'false' check evaluates to true — meaning all publish steps always run.
+  # This is intentional: only workflow_dispatch allows selectively skipping steps.
   publish-npm:
     needs: build
-    if: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish-npm == 'true') }}
+    if: ${{ github.event.inputs.publish-npm != 'false' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -161,23 +215,22 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           registry-url: "https://registry.npmjs.org"
 
       - name: Publish @514labs/moose-lsp to npm
         env:
-          VERSION: ${{ needs.build.outputs.version }}
+          NPM_TAG: ${{ needs.build.outputs.npm-tag }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           cd lsp-server
-          npm version "${VERSION}" --no-git-tag-version
           # Remove bundled workspace dependency (it's included in dist/node_modules)
           node -e "const pkg = require('./package.json'); delete pkg.dependencies['@514labs/moose-sql-validator-wasm']; require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2))"
-          npm publish --access public
+          npm publish --access public --tag "${NPM_TAG}"
 
   publish-vscode:
     needs: build
-    if: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish-vscode == 'true') }}
+    if: ${{ github.event.inputs.publish-vscode != 'false' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -189,12 +242,15 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Install vsce
         run: npm install -g @vscode/vsce
 
       - name: Publish to VS Code Marketplace
+        env:
+          PRE_RELEASE: ${{ needs.build.outputs.pre-release }}
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
           shopt -s nullglob
           vsix_files=( *.vsix )
@@ -202,13 +258,15 @@ jobs:
             echo "::error::Expected exactly one .vsix file, found ${#vsix_files[@]}: ${vsix_files[*]}"
             exit 1
           fi
-          vsce publish --packagePath "${vsix_files[0]}"
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          if [ "${PRE_RELEASE}" == "true" ]; then
+            vsce publish --packagePath "${vsix_files[0]}" --pre-release
+          else
+            vsce publish --packagePath "${vsix_files[0]}"
+          fi
 
   publish-openvsx:
     needs: build
-    if: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish-openvsx == 'true') }}
+    if: ${{ github.event.inputs.publish-openvsx != 'false' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -220,12 +278,15 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Install ovsx
         run: npm install -g ovsx
 
       - name: Publish to Open VSX
+        env:
+          PRE_RELEASE: ${{ needs.build.outputs.pre-release }}
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
         run: |
           shopt -s nullglob
           vsix_files=( *.vsix )
@@ -233,6 +294,8 @@ jobs:
             echo "::error::Expected exactly one .vsix file, found ${#vsix_files[@]}: ${vsix_files[*]}"
             exit 1
           fi
-          ovsx publish "${vsix_files[0]}"
-        env:
-          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+          if [ "${PRE_RELEASE}" == "true" ]; then
+            ovsx publish "${vsix_files[0]}" --pre-release
+          else
+            ovsx publish "${vsix_files[0]}"
+          fi
