@@ -138,6 +138,8 @@ pub struct ClickHouseData {
     pub table_engines: Vec<TableEngineInfo>,
     pub formats: Vec<FormatInfo>,
     pub table_functions: Vec<TableFunctionInfo>,
+    #[serde(default)]
+    pub aggregate_combinators: Vec<String>,
     pub settings: Vec<SettingInfo>,
     pub merge_tree_settings: Vec<SettingInfo>,
 }
