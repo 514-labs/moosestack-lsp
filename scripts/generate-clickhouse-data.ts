@@ -104,6 +104,12 @@ function expandAggregateFunctionsWithCombinators(
         ...baseFunction,
         name: combinedName,
         aliasTo: null,
+        // Aggregate functions in ClickHouse system tables have empty metadata
+        // fields (syntax, arguments, etc.), so there is nothing useful to
+        // inherit from the base function. We clear them explicitly so that if
+        // a future ClickHouse version populates these fields, combinator
+        // functions won't display the base function's metadata (which would be
+        // misleading since combinator signatures differ).
         syntax: '',
         arguments: '',
         returnedValue: '',

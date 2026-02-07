@@ -88,7 +88,7 @@ class LspClient {
       const headerStr = this.buffer
         .subarray(0, headerEndIndex)
         .toString('utf-8');
-      const match = headerStr.match(/Content-Length: (\d+)/);
+      const match = headerStr.match(/Content-Length:\s*(\d+)/i);
       if (!match) break;
 
       const contentLength = parseInt(match[1], 10);
@@ -339,8 +339,6 @@ async function initializeClient(
     },
   });
   client.notify('initialized', {});
-  // Give the server a moment to finish async init (WASM, TS service, CH data)
-  await new Promise((resolve) => setTimeout(resolve, 2000));
   return response;
 }
 
