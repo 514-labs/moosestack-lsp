@@ -80,5 +80,23 @@ describe('clickhouseData', () => {
       assert.ok(Array.isArray(data.settings));
       assert.ok(Array.isArray(data.mergeTreeSettings));
     });
+
+    it('includes expanded combinator functions and first-word keyword aliases', async () => {
+      const versions = getAvailableVersions();
+      if (versions.length === 0) {
+        return;
+      }
+
+      const data = await loadClickHouseData(versions[0]);
+
+      assert.ok(
+        data.functions.some((f) => f.name === 'sumIf'),
+        'Expected generated data to include sumIf',
+      );
+      assert.ok(
+        data.keywords.includes('GROUP'),
+        'Expected generated data to include GROUP keyword alias',
+      );
+    });
   });
 });
