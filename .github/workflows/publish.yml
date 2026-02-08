@@ -1,29 +1,12 @@
 name: Publish
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish (e.g., 0.1.0)"
+        description: "Version to publish (e.g., 1.2.0) — must match package.json versions"
         required: true
         type: string
-      publish-npm:
-        description: "Publish @514labs/moose-lsp to npm"
-        required: false
-        type: boolean
-        default: true
-      publish-vscode:
-        description: "Publish VS Code extension to marketplace"
-        required: false
-        type: boolean
-        default: true
-      publish-openvsx:
-        description: "Publish to Open VSX (for Cursor)"
-        required: false
-        type: boolean
-        default: true
   workflow_call:
     inputs:
       version:
@@ -46,7 +29,7 @@ on:
         required: true
 
 concurrency:
-  group: publish-${{ inputs.version || github.event.release.tag_name }}
+  group: publish-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
@@ -84,14 +67,8 @@ jobs:
         id: version
         env:
           INPUT_VERSION: ${{ inputs.version }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          if [ -n "${INPUT_VERSION}" ]; then
-            VERSION="${INPUT_VERSION}"
-          else
-            VERSION="${RELEASE_TAG}"
-            VERSION="${VERSION#v}"
-          fi
+          VERSION="${INPUT_VERSION}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Publishing version: ${VERSION}"
 
@@ -104,7 +81,45 @@ jobs:
             exit 1
           fi
 
+      # Production releases (workflow_dispatch) must have an even minor version.
+      # Odd minor versions are reserved for dev/pre-release builds (see dev-publish.yml).
+      - name: Validate even minor version for production release
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          MINOR=$(echo "${VERSION}" | cut -d. -f2)
+          if [ $(( MINOR % 2 )) -ne 0 ]; then
+            echo "::error::Production releases must have an even minor version (odd minor is reserved for pre-release). Got: ${VERSION}"
+            exit 1
+          fi
+
+      # For workflow_dispatch: validate that the input version matches all package.json files.
+      # For workflow_call (e.g. dev-publish): set version across all packages since the
+      # computed dev version intentionally differs from what's committed.
+      - name: Validate version matches package.json files
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          MISMATCHES=()
+          for PKG in package.json packages/lsp-server/package.json packages/sql-validator-wasm/package.json packages/vscode-extension/package.json; do
+            PKG_VERSION=$(node -p "require('./${PKG}').version")
+            if [ "${PKG_VERSION}" != "${VERSION}" ]; then
+              MISMATCHES+=("${PKG}: ${PKG_VERSION}")
+            fi
+          done
+          if [ ${#MISMATCHES[@]} -gt 0 ]; then
+            echo "::error::Version mismatch — input version '${VERSION}' does not match:"
+            for M in "${MISMATCHES[@]}"; do
+              echo "::error::  ${M}"
+            done
+            exit 1
+          fi
+          echo "All package.json versions match ${VERSION}"
+
       - name: Set version across all packages
+        if: ${{ github.event_name != 'workflow_dispatch' }}
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -197,13 +212,8 @@ jobs:
       pre-release: ${{ steps.settings.outputs.pre-release }}
       npm-tag: ${{ steps.settings.outputs.npm-tag }}
 
-  # The publish-* if conditions use github.event.inputs which is only defined for
-  # workflow_dispatch. For workflow_call and release triggers it's undefined, so
-  # the != 'false' check evaluates to true — meaning all publish steps always run.
-  # This is intentional: only workflow_dispatch allows selectively skipping steps.
   publish-npm:
     needs: build
-    if: ${{ github.event.inputs.publish-npm != 'false' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -230,7 +240,6 @@ jobs:
 
   publish-vscode:
     needs: build
-    if: ${{ github.event.inputs.publish-vscode != 'false' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -266,7 +275,6 @@ jobs:
 
   publish-openvsx:
     needs: build
-    if: ${{ github.event.inputs.publish-openvsx != 'false' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
