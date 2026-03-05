@@ -352,7 +352,7 @@ const TS_TEST_FILE_CONTENT = `import { sql } from '@514labs/moose-lib';
 const valid = sql\`SELECT count() FROM users\`;
 
 // Invalid SQL — should produce an error diagnostic
-const invalid = sql\`SELCT * FROM users\`;
+const invalid = sql\`SELECT * FROM users WHER id = 1\`;
 
 // Completions: default context (cursor after "SELECT ")
 const comp1 = sql\`SELECT \`;
@@ -460,7 +460,7 @@ async function createTsFixture(): Promise<string> {
 const PY_TEST_FILE_CONTENT = `from moose_lib import sql
 
 # Invalid SQL
-query = sql("SELCT * FROM users")
+query = sql("SELECT * FROM users WHER id = 1")
 `;
 
 async function createPyFixture(): Promise<string> {
@@ -567,8 +567,8 @@ describe('TypeScript LSP features', () => {
     );
 
     const fixedContent = TS_TEST_FILE_CONTENT.replace(
-      'SELCT * FROM users',
-      'SELECT * FROM users',
+      'SELECT * FROM users WHER id = 1',
+      'SELECT * FROM users WHERE id = 1',
     );
 
     // Send the change, wait for TextDocuments to process it, then save
@@ -576,7 +576,7 @@ describe('TypeScript LSP features', () => {
     await new Promise((r) => setTimeout(r, 100));
     client.saveDocument(tsFileUri());
 
-    // Wait for diagnostics that no longer contain the SELCT error
+    // Wait for diagnostics that no longer contain the WHER error
     const deadline = Date.now() + 10000;
     let lastDiagnostics: LspDiagnostic[] = [];
     while (Date.now() < deadline) {
@@ -937,7 +937,7 @@ describe('TypeScript LSP features', () => {
 
   test('Format SQL not offered for invalid SQL', async () => {
     const invalidLine = TS_TEST_FILE_CONTENT.split('\n').findIndex((l) =>
-      l.includes('sql`SELCT * FROM users'),
+      l.includes('sql`SELECT * FROM users WHER id = 1'),
     );
 
     const response = await client.request('textDocument/codeAction', {

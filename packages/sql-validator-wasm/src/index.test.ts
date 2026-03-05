@@ -19,11 +19,33 @@ test('SQL Validator Tests', async (t) => {
     assert.ok(!result.error || result.error === null);
   });
 
-  await t.test('catches typo in SELECT keyword', () => {
-    const result = validateSql('SELCT * FROM users');
+  await t.test('catches syntax errors', () => {
+    const result = validateSql('SELECT * FROM users WHER id = 1');
     assert.strictEqual(result.valid, false);
     assert.ok(result.error);
-    assert.ok(result.error.message.includes('SELCT'));
+    assert.ok(result.error.message.length > 0);
+  });
+
+  await t.test('accepts SQL fragments', () => {
+    // Bare expression
+    assert.strictEqual(validateSql('foo').valid, true);
+    // Column list
+    assert.strictEqual(validateSql('foo, bar, baz').valid, true);
+    // WHERE clause
+    assert.strictEqual(validateSql('WHERE id = 1').valid, true);
+    // ORDER BY clause
+    assert.strictEqual(validateSql('ORDER BY name ASC').valid, true);
+    // Boolean expression
+    assert.strictEqual(validateSql("id = 1 AND name = 'foo'").valid, true);
+    // Function call
+    assert.strictEqual(validateSql('count(*)').valid, true);
+  });
+
+  await t.test('still catches errors in fragments', () => {
+    // Unclosed parenthesis
+    assert.strictEqual(validateSql('SELECT (foo').valid, false);
+    // Unclosed string
+    assert.strictEqual(validateSql("SELECT 'foo").valid, false);
   });
 
   await t.test('validates ClickHouse-specific syntax', () => {
