@@ -1,5 +1,6 @@
 import type { ValidationResult } from '@514labs/moose-sql-validator-wasm';
 import type { Diagnostic } from 'vscode-languageserver/node';
+import { createDeprecationDiagnostic } from './diagnostics';
 import { prepareSqlForValidation, type SqlLocation } from './sqlLocations';
 
 /**
@@ -59,6 +60,15 @@ export function validateSqlLocations(
   const diagnosticsMap = new Map<string, Diagnostic[]>();
 
   for (const location of sqlLocations) {
+    // Emit deprecation hint for bare sql tags
+    if (location.tagKind === 'bare') {
+      const { uri, diagnostic } = createDeprecationDiagnostic(location);
+      if (!diagnosticsMap.has(uri)) {
+        diagnosticsMap.set(uri, []);
+      }
+      diagnosticsMap.get(uri)?.push(diagnostic);
+    }
+
     // Skip validation for fragments — they're intentionally partial SQL
     if (location.tagKind === 'fragment') continue;
 

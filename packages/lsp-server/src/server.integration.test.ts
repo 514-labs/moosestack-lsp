@@ -529,18 +529,19 @@ describe('TypeScript LSP features', () => {
 
   test('valid SQL produces no error diagnostics on that template', async () => {
     // The server publishes diagnostics for the whole file.
-    // We check that the "valid" template line has no diagnostic.
+    // We check that the "valid" template line has no error diagnostic.
+    // (It may have a deprecation hint for bare sql tags.)
     const validLine = TS_TEST_FILE_CONTENT.split('\n').findIndex((l) =>
       l.includes('const valid'),
     );
     const diagnostics = await client.waitForDiagnostics(tsFileUri());
-    const onValidLine = diagnostics.filter(
-      (d) => d.range.start.line === validLine,
+    const errorsOnValidLine = diagnostics.filter(
+      (d) => d.range.start.line === validLine && d.severity === 1,
     );
     assert.strictEqual(
-      onValidLine.length,
+      errorsOnValidLine.length,
       0,
-      `Expected no diagnostics on the valid SQL line, got: ${JSON.stringify(onValidLine)}`,
+      `Expected no error diagnostics on the valid SQL line, got: ${JSON.stringify(errorsOnValidLine)}`,
     );
   });
 
@@ -549,14 +550,14 @@ describe('TypeScript LSP features', () => {
     const invalidLine = TS_TEST_FILE_CONTENT.split('\n').findIndex((l) =>
       l.includes('const invalid'),
     );
-    const onInvalidLine = diagnostics.filter(
-      (d) => d.range.start.line === invalidLine,
+    const errorsOnInvalidLine = diagnostics.filter(
+      (d) => d.range.start.line === invalidLine && d.severity === 1,
     );
     assert.ok(
-      onInvalidLine.length > 0,
-      `Expected at least one diagnostic on the invalid SQL line (${invalidLine})`,
+      errorsOnInvalidLine.length > 0,
+      `Expected at least one error diagnostic on the invalid SQL line (${invalidLine})`,
     );
-    const diag = onInvalidLine[0];
+    const diag = errorsOnInvalidLine[0];
     assert.strictEqual(diag.severity, 1, 'Severity should be Error (1)');
     assert.strictEqual(diag.source, 'moose-sql');
   });
@@ -577,24 +578,31 @@ describe('TypeScript LSP features', () => {
     client.saveDocument(tsFileUri());
 
     // Wait for diagnostics that no longer contain the SELCT error
+    // (deprecation hints may still be present on the line)
     const deadline = Date.now() + 10000;
     let lastDiagnostics: LspDiagnostic[] = [];
     while (Date.now() < deadline) {
       lastDiagnostics = await client.waitForFreshDiagnostics(tsFileUri());
-      const onFixedLine = lastDiagnostics.filter(
-        (d) => d.range.start.line === invalidLine && d.source === 'moose-sql',
+      const errorsOnFixedLine = lastDiagnostics.filter(
+        (d) =>
+          d.range.start.line === invalidLine &&
+          d.source === 'moose-sql' &&
+          d.severity === 1,
       );
-      if (onFixedLine.length === 0) break;
+      if (errorsOnFixedLine.length === 0) break;
       // Got stale diagnostics, wait for the next publish
     }
 
-    const onFixedLine = lastDiagnostics.filter(
-      (d) => d.range.start.line === invalidLine && d.source === 'moose-sql',
+    const errorsOnFixedLine = lastDiagnostics.filter(
+      (d) =>
+        d.range.start.line === invalidLine &&
+        d.source === 'moose-sql' &&
+        d.severity === 1,
     );
     assert.strictEqual(
-      onFixedLine.length,
+      errorsOnFixedLine.length,
       0,
-      `Expected no diagnostic on the fixed line (${invalidLine}), got: ${JSON.stringify(onFixedLine)}`,
+      `Expected no error diagnostic on the fixed line (${invalidLine}), got: ${JSON.stringify(errorsOnFixedLine)}`,
     );
 
     // Restore original content for subsequent tests
@@ -1203,16 +1211,13 @@ describe('Python LSP features', () => {
       client.openDocument(pyUri, 'python', PY_TEST_FILE_CONTENT);
 
       const diagnostics = await client.waitForDiagnostics(pyUri);
+      const errors = diagnostics.filter((d) => d.severity === 1);
       assert.ok(
-        diagnostics.length > 0,
-        `Expected diagnostics for invalid Python SQL, got none`,
+        errors.length > 0,
+        `Expected error diagnostics for invalid Python SQL, got none`,
       );
-      assert.strictEqual(
-        diagnostics[0].severity,
-        1,
-        'Should be Error severity',
-      );
-      assert.strictEqual(diagnostics[0].source, 'moose-sql');
+      assert.strictEqual(errors[0].severity, 1, 'Should be Error severity');
+      assert.strictEqual(errors[0].source, 'moose-sql');
     } finally {
       client.close();
       await fs.rm(tmpDir, { recursive: true, force: true });

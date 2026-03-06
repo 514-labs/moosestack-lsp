@@ -135,8 +135,11 @@ test('validateSqlLocations Tests', async (t) => {
     assert.strictEqual(result.size, 1);
     const diagnostics = result.get('file:///project/app/apis/bar.ts');
     assert.ok(diagnostics);
-    assert.strictEqual(diagnostics.length, 1);
-    assert.strictEqual(diagnostics[0].message, 'Expected SELECT, found SLECT');
+    // 1 deprecation hint + 1 error diagnostic
+    assert.strictEqual(diagnostics.length, 2);
+    const errors = diagnostics.filter((d) => d.severity === 1);
+    assert.strictEqual(errors.length, 1);
+    assert.strictEqual(errors[0].message, 'Expected SELECT, found SLECT');
   });
 
   await t.test('skips valid SQL', () => {
@@ -149,10 +152,10 @@ test('validateSqlLocations Tests', async (t) => {
         endLine: 61,
         endColumn: 6,
         templateText: 'SELECT ${...} FROM ${...}',
-        tagKind: 'bare',
+        tagKind: 'statement',
         tagLine: 1,
         tagColumn: 1,
-        tagEndColumn: 4,
+        tagEndColumn: 14,
       },
     ];
 
@@ -223,7 +226,8 @@ test('validateSqlLocations Tests', async (t) => {
     assert.strictEqual(result.size, 1);
     const diagnostics = result.get('file:///project/app/apis/bar.ts');
     assert.ok(diagnostics);
-    assert.strictEqual(diagnostics.length, 2);
+    // 2 error diagnostics + 2 deprecation hints (one per bare tag)
+    assert.strictEqual(diagnostics.length, 4);
   });
 
   await t.test('handles multiple files', () => {
@@ -380,4 +384,40 @@ test('validateSqlLocations Tests', async (t) => {
       assert.ok(validatedSql.includes('FROM'));
     },
   );
+
+  await t.test('emits deprecation diagnostic for bare tagKind', () => {
+    const locations: SqlLocation[] = [
+      {
+        id: 'test.ts:1:15',
+        file: '/project/test.ts',
+        line: 1,
+        column: 15,
+        endLine: 1,
+        endColumn: 50,
+        templateText: 'SELECT * FROM users',
+        tagKind: 'bare',
+        tagLine: 1,
+        tagColumn: 11,
+        tagEndColumn: 14,
+      },
+    ];
+
+    const mockValidateSql: ValidateSqlFn = () => ({ valid: true });
+    const mockCreateDiagnostic: CreateLocationDiagnosticFn = () => ({
+      uri: '',
+      diagnostic: createMockDiagnostic(''),
+    });
+
+    const result = validateSqlLocations(
+      locations,
+      mockValidateSql,
+      mockCreateDiagnostic,
+    );
+
+    // Even though SQL is valid, should have a deprecation hint
+    const diagnostics = result.get('file:///project/test.ts');
+    assert.ok(diagnostics);
+    assert.strictEqual(diagnostics.length, 1);
+    assert.ok(diagnostics[0].message.includes('deprecated'));
+  });
 });
