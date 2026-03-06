@@ -1,5 +1,10 @@
 import ts from 'typescript';
-import type { TextEdit } from 'vscode-languageserver/node';
+import {
+  type CodeAction,
+  CodeActionKind,
+  type Diagnostic,
+  type TextEdit,
+} from 'vscode-languageserver/node';
 import { formatSqlTemplate } from './formatting';
 import type { SqlLocation } from './sqlLocations';
 
@@ -219,4 +224,55 @@ export function findTemplateNodeById(
 
   visit(sourceFile);
   return targetNode;
+}
+
+/**
+ * Creates quick-fix code actions for deprecated bare `sql` tag diagnostics.
+ * Offers "Convert to sql.statement" and "Convert to sql.fragment".
+ */
+export function createDeprecationCodeActions(
+  uri: string,
+  diagnostics: Diagnostic[],
+): CodeAction[] {
+  const actions: CodeAction[] = [];
+
+  for (const diagnostic of diagnostics) {
+    const data = diagnostic.data as { type?: string } | undefined;
+    if (data?.type !== 'deprecated-sql-tag') continue;
+
+    actions.push(
+      {
+        title: "Convert to 'sql.statement'",
+        kind: CodeActionKind.QuickFix,
+        diagnostics: [diagnostic],
+        edit: {
+          changes: {
+            [uri]: [
+              {
+                range: diagnostic.range,
+                newText: 'sql.statement',
+              },
+            ],
+          },
+        },
+      },
+      {
+        title: "Convert to 'sql.fragment'",
+        kind: CodeActionKind.QuickFix,
+        diagnostics: [diagnostic],
+        edit: {
+          changes: {
+            [uri]: [
+              {
+                range: diagnostic.range,
+                newText: 'sql.fragment',
+              },
+            ],
+          },
+        },
+      },
+    );
+  }
+
+  return actions;
 }
