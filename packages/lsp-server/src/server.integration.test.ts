@@ -389,6 +389,21 @@ const combPrefix = sql\`SELECT sum\`;
 
 // Default context (empty SQL — triggers Default completions with all kinds)
 const defaultCtx = sql\`\`;
+
+// sql.statement — valid SQL, should validate
+const stmtValid = sql.statement\`SELECT count() FROM users\`;
+
+// sql.statement — invalid SQL, should produce error
+const stmtInvalid = sql.statement\`SELCT * FROM users\`;
+
+// sql.fragment — invalid as standalone SQL, should NOT produce error
+const frag = sql.fragment\`status = 'active' AND amount > 0\`;
+
+// sql.fragment — hover target
+const fragHover = sql.fragment\`toUInt32(id) > 0\`;
+
+// sql.fragment — completions target
+const fragComp = sql.fragment\`cou\`;
 `;
 
 async function createTsFixture(): Promise<string> {
@@ -438,11 +453,23 @@ async function createTsFixture(): Promise<string> {
   );
   await fs.writeFile(
     path.join(mooseLibDir, 'index.js'),
-    'module.exports.sql = function sql() { return ""; };\n',
+    `
+const handler = function(strings, ...values) { return strings.join(''); };
+handler.statement = handler;
+handler.fragment = handler;
+module.exports.sql = handler;
+`,
   );
   await fs.writeFile(
     path.join(mooseLibDir, 'index.d.ts'),
-    'export declare function sql(strings: TemplateStringsArray, ...values: unknown[]): string;\n',
+    `
+interface SqlTemplateTag {
+  (strings: TemplateStringsArray, ...values: unknown[]): string;
+  statement(strings: TemplateStringsArray, ...values: unknown[]): string;
+  fragment(strings: TemplateStringsArray, ...values: unknown[]): string;
+}
+export declare const sql: SqlTemplateTag;
+`,
   );
 
   // Test TypeScript file
@@ -1057,6 +1084,199 @@ describe('TypeScript LSP features', () => {
     assert.ok(
       labels.some((l) => l === 'ORDER BY'),
       `Should include "ORDER BY" keyword, got sample: ${labels.slice(0, 30).join(', ')}`,
+    );
+  });
+
+  // ---- Feature: sql.statement / sql.fragment handling ----
+
+  test('sql.statement with valid SQL produces no error diagnostics', async () => {
+    const diagnostics = await client.waitForDiagnostics(tsFileUri());
+    const stmtValidLine = TS_TEST_FILE_CONTENT.split('\n').findIndex((l) =>
+      l.includes('const stmtValid'),
+    );
+    const errors = diagnostics.filter(
+      (d) => d.range.start.line === stmtValidLine && d.severity === 1,
+    );
+    assert.strictEqual(
+      errors.length,
+      0,
+      `Expected no error diagnostics on valid sql.statement line, got: ${JSON.stringify(errors)}`,
+    );
+  });
+
+  test('sql.statement with invalid SQL produces error diagnostic', async () => {
+    const diagnostics = await client.waitForDiagnostics(tsFileUri());
+    const stmtInvalidLine = TS_TEST_FILE_CONTENT.split('\n').findIndex((l) =>
+      l.includes('const stmtInvalid'),
+    );
+    const errors = diagnostics.filter(
+      (d) => d.range.start.line === stmtInvalidLine && d.severity === 1,
+    );
+    assert.ok(
+      errors.length > 0,
+      `Expected error diagnostic on invalid sql.statement line (${stmtInvalidLine})`,
+    );
+    assert.strictEqual(errors[0].source, 'moose-sql');
+  });
+
+  test('sql.fragment does NOT produce validation errors', async () => {
+    const diagnostics = await client.waitForDiagnostics(tsFileUri());
+    const fragLine = TS_TEST_FILE_CONTENT.split('\n').findIndex((l) =>
+      l.includes('const frag ='),
+    );
+    const errors = diagnostics.filter(
+      (d) => d.range.start.line === fragLine && d.severity === 1,
+    );
+    assert.strictEqual(
+      errors.length,
+      0,
+      `Expected no error diagnostics on sql.fragment line, got: ${JSON.stringify(errors)}`,
+    );
+  });
+
+  test('hover works inside sql.fragment', async () => {
+    const fragHoverLine = TS_TEST_FILE_CONTENT.split('\n').findIndex((l) =>
+      l.includes('const fragHover'),
+    );
+    const lineText = TS_TEST_FILE_CONTENT.split('\n')[fragHoverLine];
+    const toUInt32Idx = lineText.indexOf('toUInt32');
+    assert.ok(toUInt32Idx !== -1, 'Should find toUInt32 in fragHover line');
+
+    const response = await client.request('textDocument/hover', {
+      textDocument: { uri: tsFileUri() },
+      position: { line: fragHoverLine, character: toUInt32Idx + 1 },
+    });
+    assert.ok(
+      response.result,
+      'Hover should return a result for toUInt32 inside fragment',
+    );
+    const hover = response.result as {
+      contents: { kind: string; value: string };
+    };
+    assert.ok(
+      hover.contents.value.length > 0,
+      'Hover content should not be empty',
+    );
+  });
+
+  test('completions work inside sql.fragment', async () => {
+    const pos = cursorAfter(
+      TS_TEST_FILE_CONTENT,
+      'fragComp = sql.fragment`cou',
+    );
+    const response = await client.request('textDocument/completion', {
+      textDocument: { uri: tsFileUri() },
+      position: pos,
+    });
+    const items = response.result as LspCompletionItem[];
+    assert.ok(Array.isArray(items), 'Result should be an array');
+    assert.ok(items.length > 0, 'Should have completion items inside fragment');
+    const labels = items.map((i) => i.label.toLowerCase());
+    assert.ok(
+      labels.some((l) => l.startsWith('count')),
+      `Should include count* completions inside fragment, got: ${labels.slice(0, 10).join(', ')}`,
+    );
+  });
+
+  test('bare sql tag produces deprecation hint diagnostic', async () => {
+    const diagnostics = await client.waitForDiagnostics(tsFileUri());
+    const validLine = TS_TEST_FILE_CONTENT.split('\n').findIndex((l) =>
+      l.includes('const valid = sql`'),
+    );
+    const hints = diagnostics.filter(
+      (d) => d.range.start.line === validLine && d.severity === 4, // Hint
+    );
+    assert.ok(
+      hints.length > 0,
+      `Expected deprecation hint on bare sql line (${validLine}), got diagnostics: ${JSON.stringify(
+        diagnostics.filter((d) => d.range.start.line === validLine),
+      )}`,
+    );
+    assert.ok(
+      hints[0].message.includes('deprecated'),
+      'Hint message should mention deprecated',
+    );
+  });
+
+  test('sql.statement does NOT produce deprecation hint', async () => {
+    const diagnostics = await client.waitForDiagnostics(tsFileUri());
+    const stmtValidLine = TS_TEST_FILE_CONTENT.split('\n').findIndex((l) =>
+      l.includes('const stmtValid'),
+    );
+    const hints = diagnostics.filter(
+      (d) => d.range.start.line === stmtValidLine && d.severity === 4,
+    );
+    assert.strictEqual(
+      hints.length,
+      0,
+      `Expected no deprecation hint on sql.statement line, got: ${JSON.stringify(hints)}`,
+    );
+  });
+
+  test('sql.fragment does NOT produce deprecation hint', async () => {
+    const diagnostics = await client.waitForDiagnostics(tsFileUri());
+    const fragLine = TS_TEST_FILE_CONTENT.split('\n').findIndex((l) =>
+      l.includes('const frag ='),
+    );
+    const hints = diagnostics.filter(
+      (d) => d.range.start.line === fragLine && d.severity === 4,
+    );
+    assert.strictEqual(
+      hints.length,
+      0,
+      `Expected no deprecation hint on sql.fragment line, got: ${JSON.stringify(hints)}`,
+    );
+  });
+
+  test('code action offers quick fixes for bare sql deprecation', async () => {
+    const diagnostics = await client.waitForDiagnostics(tsFileUri());
+    const validLine = TS_TEST_FILE_CONTENT.split('\n').findIndex((l) =>
+      l.includes('const valid = sql`'),
+    );
+    const hints = diagnostics.filter(
+      (d) => d.range.start.line === validLine && d.severity === 4,
+    );
+    assert.ok(
+      hints.length > 0,
+      'Should have deprecation hint to pass as context',
+    );
+
+    const response = await client.request('textDocument/codeAction', {
+      textDocument: { uri: tsFileUri() },
+      range: {
+        start: { line: validLine, character: 15 },
+        end: { line: validLine, character: 15 },
+      },
+      context: { diagnostics: hints },
+    });
+
+    const actions = response.result as Array<{
+      title: string;
+      kind?: string;
+      edit?: { changes: Record<string, Array<{ newText: string }>> };
+    }>;
+    assert.ok(Array.isArray(actions), 'Code actions should be an array');
+
+    const statementAction = actions.find((a) =>
+      a.title.includes('sql.statement'),
+    );
+    assert.ok(statementAction, 'Should offer Convert to sql.statement action');
+    assert.ok(
+      statementAction.edit?.changes?.[tsFileUri()]?.some(
+        (e) => e.newText === 'sql.statement',
+      ),
+      'Statement action should replace with sql.statement',
+    );
+
+    const fragmentAction = actions.find((a) =>
+      a.title.includes('sql.fragment'),
+    );
+    assert.ok(fragmentAction, 'Should offer Convert to sql.fragment action');
+    assert.ok(
+      fragmentAction.edit?.changes?.[tsFileUri()]?.some(
+        (e) => e.newText === 'sql.fragment',
+      ),
+      'Fragment action should replace with sql.fragment',
     );
   });
 });
