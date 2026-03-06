@@ -719,24 +719,20 @@ pub fn validate_sql(sql: &str) -> String {
             error: None,
         },
         Err(e) => {
-            // Statement parsing failed — try fragment strategies before reporting error
-            if is_valid_sql_fragment(sql, &dialect) {
-                ValidationResult {
-                    valid: true,
-                    error: None,
-                }
-            } else {
-                let message = e.to_string();
-                let (line, column) = parse_error_position(&message);
+            // sqlparser errors include position information
+            // Format: "sql parser error: Expected X, found Y at Line: 1, Column: 5"
+            let message = e.to_string();
 
-                ValidationResult {
-                    valid: false,
-                    error: Some(ValidationError {
-                        message,
-                        line,
-                        column,
-                    }),
-                }
+            // Parse line/column from error message if available
+            let (line, column) = parse_error_position(&message);
+
+            ValidationResult {
+                valid: false,
+                error: Some(ValidationError {
+                    message,
+                    line,
+                    column,
+                }),
             }
         }
     };
@@ -744,34 +740,6 @@ pub fn validate_sql(sql: &str) -> String {
     serde_json::to_string(&result).unwrap_or_else(|_| {
         r#"{"valid":false,"error":{"message":"Internal serialization error"}}"#.to_string()
     })
-}
-
-/// Check if the SQL text is a valid fragment (expression, clause, etc.)
-/// even though it isn't a complete SQL statement.
-fn is_valid_sql_fragment(sql: &str, dialect: &ClickHouseDialect) -> bool {
-    let trimmed = sql.trim();
-    if trimmed.is_empty() {
-        return true;
-    }
-
-    // Try 1: Parse as a standalone SQL expression (e.g. "x + 1", "id = 1 AND name = 'foo'")
-    if let Ok(mut parser) = Parser::new(dialect).try_with_sql(trimmed) {
-        if parser.parse_expr().is_ok() && parser.peek_token().token == Token::EOF {
-            return true;
-        }
-    }
-
-    // Try 2: Wrap as SELECT column list (handles "foo, bar", "count(*)", etc.)
-    if Parser::parse_sql(dialect, &format!("SELECT {trimmed}")).is_ok() {
-        return true;
-    }
-
-    // Try 3: Wrap as clause after FROM (handles "WHERE x=1", "ORDER BY y", "LIMIT 10", etc.)
-    if Parser::parse_sql(dialect, &format!("SELECT 1 FROM _t {trimmed}")).is_ok() {
-        return true;
-    }
-
-    false
 }
 
 #[must_use]
@@ -847,7 +815,7 @@ mod tests {
 
     #[test]
     fn test_invalid_sql() {
-        let sql = "SELECT * FROM users WHER id = 1";
+        let sql = "SELCT * FROM users";
         let result = validate_sql(sql);
         let parsed: ValidationResult = serde_json::from_str(&result).expect("valid JSON");
         assert!(!parsed.valid);
@@ -1004,181 +972,5 @@ mod tests {
             detect_context("CREATE TABLE t (id UInt64, name ", 32),
             SqlContext::ColumnDefinition
         );
-    }
-
-    // SQL fragment validation tests
-    #[test]
-    fn test_fragment_simple_expression() {
-        // A bare identifier is a valid expression fragment
-        let result = validate_sql("foo");
-        let parsed: ValidationResult = serde_json::from_str(&result).expect("valid JSON");
-        assert!(parsed.valid, "bare identifier should be valid fragment");
-    }
-
-    #[test]
-    fn test_fragment_select_without_from() {
-        let result = validate_sql("select foo");
-        let parsed: ValidationResult = serde_json::from_str(&result).expect("valid JSON");
-        assert!(
-            parsed.valid,
-            "select without FROM should be valid: {:?}",
-            parsed.error
-        );
-    }
-
-    #[test]
-    fn test_fragment_column_list() {
-        let result = validate_sql("foo, bar, baz");
-        let parsed: ValidationResult = serde_json::from_str(&result).expect("valid JSON");
-        assert!(
-            parsed.valid,
-            "column list should be valid fragment: {:?}",
-            parsed.error
-        );
-    }
-
-    #[test]
-    fn test_fragment_where_clause() {
-        let result = validate_sql("WHERE id = 1");
-        let parsed: ValidationResult = serde_json::from_str(&result).expect("valid JSON");
-        assert!(
-            parsed.valid,
-            "WHERE clause should be valid fragment: {:?}",
-            parsed.error
-        );
-    }
-
-    #[test]
-    fn test_fragment_order_by_clause() {
-        let result = validate_sql("ORDER BY name ASC");
-        let parsed: ValidationResult = serde_json::from_str(&result).expect("valid JSON");
-        assert!(
-            parsed.valid,
-            "ORDER BY clause should be valid fragment: {:?}",
-            parsed.error
-        );
-    }
-
-    #[test]
-    fn test_fragment_limit_clause() {
-        let result = validate_sql("LIMIT 10");
-        let parsed: ValidationResult = serde_json::from_str(&result).expect("valid JSON");
-        assert!(
-            parsed.valid,
-            "LIMIT clause should be valid fragment: {:?}",
-            parsed.error
-        );
-    }
-
-    #[test]
-    fn test_fragment_group_by_clause() {
-        let result = validate_sql("GROUP BY category");
-        let parsed: ValidationResult = serde_json::from_str(&result).expect("valid JSON");
-        assert!(
-            parsed.valid,
-            "GROUP BY clause should be valid fragment: {:?}",
-            parsed.error
-        );
-    }
-
-    #[test]
-    fn test_fragment_boolean_expression() {
-        let result = validate_sql("id = 1 AND name = 'foo'");
-        let parsed: ValidationResult = serde_json::from_str(&result).expect("valid JSON");
-        assert!(
-            parsed.valid,
-            "boolean expression should be valid fragment: {:?}",
-            parsed.error
-        );
-    }
-
-    #[test]
-    fn test_fragment_function_call() {
-        let result = validate_sql("count(*)");
-        let parsed: ValidationResult = serde_json::from_str(&result).expect("valid JSON");
-        assert!(
-            parsed.valid,
-            "function call should be valid fragment: {:?}",
-            parsed.error
-        );
-    }
-
-    #[test]
-    fn test_fragment_arithmetic_expression() {
-        let result = validate_sql("a + b * 2");
-        let parsed: ValidationResult = serde_json::from_str(&result).expect("valid JSON");
-        assert!(
-            parsed.valid,
-            "arithmetic expression should be valid fragment: {:?}",
-            parsed.error
-        );
-    }
-
-    #[test]
-    fn test_fragment_with_placeholders() {
-        let result = validate_sql("SELECT _ph_1 FROM _ph_2 WHERE _ph_3 = 1");
-        let parsed: ValidationResult = serde_json::from_str(&result).expect("valid JSON");
-        assert!(parsed.valid, "placeholders should work: {:?}", parsed.error);
-    }
-
-    #[test]
-    fn test_fragment_empty_string() {
-        let result = validate_sql("");
-        let parsed: ValidationResult = serde_json::from_str(&result).expect("valid JSON");
-        assert!(parsed.valid, "empty string should be valid");
-    }
-
-    #[test]
-    fn test_fragment_whitespace_only() {
-        let result = validate_sql("   ");
-        let parsed: ValidationResult = serde_json::from_str(&result).expect("valid JSON");
-        assert!(parsed.valid, "whitespace should be valid");
-    }
-
-    #[test]
-    fn test_fragment_still_catches_real_errors() {
-        // Genuinely malformed SQL should still be caught
-        let cases = vec![
-            ("SELECT (foo", "unclosed parenthesis"),
-            ("SELECT 'foo", "unclosed string literal"),
-            ("foo +", "trailing operator"),
-        ];
-        for (sql, desc) in cases {
-            let result = validate_sql(sql);
-            let parsed: ValidationResult = serde_json::from_str(&result).expect("valid JSON");
-            assert!(!parsed.valid, "{desc} should still be invalid: {sql}");
-        }
-    }
-
-    #[test]
-    fn test_fragment_catches_unclosed_parens() {
-        let result = validate_sql("SELECT (foo");
-        let parsed: ValidationResult = serde_json::from_str(&result).expect("valid JSON");
-        assert!(
-            !parsed.valid,
-            "unclosed parentheses should still be invalid"
-        );
-    }
-
-    #[test]
-    fn test_fragment_catches_unclosed_quotes() {
-        let result = validate_sql("SELECT 'foo");
-        let parsed: ValidationResult = serde_json::from_str(&result).expect("valid JSON");
-        assert!(!parsed.valid, "unclosed quotes should still be invalid");
-    }
-
-    #[test]
-    fn test_full_statements_still_work() {
-        // Ensure existing full statement validation still works
-        let cases = vec![
-            "SELECT * FROM users WHERE id = 1",
-            "INSERT INTO users (name) VALUES ('alice')",
-            "CREATE TABLE t (id UInt64) ENGINE = MergeTree ORDER BY id",
-        ];
-        for sql in cases {
-            let result = validate_sql(sql);
-            let parsed: ValidationResult = serde_json::from_str(&result).expect("valid JSON");
-            assert!(parsed.valid, "full statement should be valid: {sql}");
-        }
     }
 }

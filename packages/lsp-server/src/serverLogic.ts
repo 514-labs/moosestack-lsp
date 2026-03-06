@@ -1,5 +1,6 @@
 import type { ValidationResult } from '@514labs/moose-sql-validator-wasm';
 import type { Diagnostic } from 'vscode-languageserver/node';
+import { createDeprecationDiagnostic } from './diagnostics';
 import { prepareSqlForValidation, type SqlLocation } from './sqlLocations';
 
 /**
@@ -44,12 +45,21 @@ export function isPythonFile(filePath: string): boolean {
   return filePath.endsWith('.py');
 }
 
+function addDiagnostic(
+  map: Map<string, Diagnostic[]>,
+  uri: string,
+  diagnostic: Diagnostic,
+): void {
+  if (!map.has(uri)) {
+    map.set(uri, []);
+  }
+  map.get(uri)?.push(diagnostic);
+}
+
 /**
- * Validates SQL from template locations and returns a map of URI -> diagnostics
- * @param sqlLocations - Array of SQL template locations
- * @param validateSql - Function to validate SQL strings
- * @param createDiagnostic - Function to create LSP diagnostics from validation errors
- * @returns Map of file URIs to their diagnostics
+ * Validates SQL from template locations and returns a map of URI -> diagnostics.
+ * - Fragments (sql.fragment) are skipped for statement-level validation.
+ * - Bare sql tags get a deprecation hint diagnostic.
  */
 export function validateSqlLocations(
   sqlLocations: SqlLocation[],
@@ -59,17 +69,22 @@ export function validateSqlLocations(
   const diagnosticsMap = new Map<string, Diagnostic[]>();
 
   for (const location of sqlLocations) {
+    // Emit deprecation hint for bare `sql` tag
+    if (location.tagKind === 'bare') {
+      const { uri, diagnostic } = createDeprecationDiagnostic(location);
+      addDiagnostic(diagnosticsMap, uri, diagnostic);
+    }
+
+    // Skip statement-level validation for fragments — they aren't full SQL
+    if (location.tagKind === 'fragment') continue;
+
     // Replace ${...} placeholders with valid SQL identifiers before validation
     const preparedSql = prepareSqlForValidation(location.templateText);
     const result = validateSql(preparedSql);
 
     if (!result.valid && result.error) {
       const { uri, diagnostic } = createDiagnostic(location, result.error);
-
-      if (!diagnosticsMap.has(uri)) {
-        diagnosticsMap.set(uri, []);
-      }
-      diagnosticsMap.get(uri)?.push(diagnostic);
+      addDiagnostic(diagnosticsMap, uri, diagnostic);
     }
   }
 

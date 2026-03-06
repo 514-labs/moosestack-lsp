@@ -308,6 +308,11 @@ function createSqlLocation(
     endLine: endPosition.row + 1,
     endColumn: endPosition.column + 1,
     templateText: text,
+    // Python sql() API has no tag variants — treat as statement
+    tagKind: 'statement',
+    tagLine: startPosition.row + 1,
+    tagColumn: startPosition.column + 1,
+    tagEndColumn: startPosition.column + 1,
   };
 }
 

@@ -349,46 +349,52 @@ async function initializeClient(
 const TS_TEST_FILE_CONTENT = `import { sql } from '@514labs/moose-lib';
 
 // Valid SQL — should produce no diagnostics
-const valid = sql\`SELECT count() FROM users\`;
+const valid = sql.statement\`SELECT count() FROM users\`;
 
 // Invalid SQL — should produce an error diagnostic
-const invalid = sql\`SELECT * FROM users WHER id = 1\`;
+const invalid = sql.statement\`SELCT * FROM users\`;
 
 // Completions: default context (cursor after "SELECT ")
-const comp1 = sql\`SELECT \`;
+const comp1 = sql.statement\`SELECT \`;
 
 // Context-aware: ENGINE =
-const engine = sql\`CREATE TABLE t ENGINE = \`;
+const engine = sql.statement\`CREATE TABLE t ENGINE = \`;
 
 // Context-aware: FORMAT
-const format = sql\`SELECT * FORMAT \`;
+const format = sql.statement\`SELECT * FORMAT \`;
 
 // Context-aware: SETTINGS
-const settings = sql\`SELECT * SETTINGS \`;
+const settings = sql.statement\`SELECT * SETTINGS \`;
 
 // Context-aware: column definition (data types)
-const coldef = sql\`CREATE TABLE t (id \`;
+const coldef = sql.statement\`CREATE TABLE t (id \`;
 
 // Context-aware: FROM (table functions)
-const fromCtx = sql\`SELECT * FROM \`;
+const fromCtx = sql.statement\`SELECT * FROM \`;
 
 // Hover targets
-const hover = sql\`SELECT count() FROM users WHERE toUInt32(id) > 0\`;
+const hover = sql.statement\`SELECT count() FROM users WHERE toUInt32(id) > 0\`;
 
 // Format SQL target (lowercase)
-const fmt = sql\`select * from users where id = 1\`;
+const fmt = sql.statement\`select * from users where id = 1\`;
 
 // Combinators
-const comb = sql\`SELECT sumIf(amount, active), countIf(status) FROM orders\`;
+const comb = sql.statement\`SELECT sumIf(amount, active), countIf(status) FROM orders\`;
 
 // Prefix filtering
-const prefix = sql\`SELECT cou\`;
+const prefix = sql.statement\`SELECT cou\`;
 
 // Combinator prefix filtering
-const combPrefix = sql\`SELECT sum\`;
+const combPrefix = sql.statement\`SELECT sum\`;
 
 // Default context (empty SQL — triggers Default completions with all kinds)
-const defaultCtx = sql\`\`;
+const defaultCtx = sql.statement\`\`;
+
+// Deprecated bare sql tag — should produce deprecation hint
+const deprecated = sql\`SELECT 1\`;
+
+// Fragment — should not produce validation errors
+const frag = sql.fragment\`WHERE id = 1\`;
 `;
 
 async function createTsFixture(): Promise<string> {
@@ -438,11 +444,22 @@ async function createTsFixture(): Promise<string> {
   );
   await fs.writeFile(
     path.join(mooseLibDir, 'index.js'),
-    'module.exports.sql = function sql() { return ""; };\n',
+    `${[
+      'function sqlTag() { return ""; }',
+      'sqlTag.statement = sqlTag;',
+      'sqlTag.fragment = sqlTag;',
+      'module.exports.sql = sqlTag;',
+    ].join('\n')}\n`,
   );
   await fs.writeFile(
     path.join(mooseLibDir, 'index.d.ts'),
-    'export declare function sql(strings: TemplateStringsArray, ...values: unknown[]): string;\n',
+    `${[
+      'type SqlTag = ((strings: TemplateStringsArray, ...values: unknown[]) => string) & {',
+      '  statement: (strings: TemplateStringsArray, ...values: unknown[]) => string;',
+      '  fragment: (strings: TemplateStringsArray, ...values: unknown[]) => string;',
+      '};',
+      'export declare const sql: SqlTag;',
+    ].join('\n')}\n`,
   );
 
   // Test TypeScript file
@@ -460,7 +477,7 @@ async function createTsFixture(): Promise<string> {
 const PY_TEST_FILE_CONTENT = `from moose_lib import sql
 
 # Invalid SQL
-query = sql("SELECT * FROM users WHER id = 1")
+query = sql("SELCT * FROM users")
 `;
 
 async function createPyFixture(): Promise<string> {
@@ -567,8 +584,8 @@ describe('TypeScript LSP features', () => {
     );
 
     const fixedContent = TS_TEST_FILE_CONTENT.replace(
-      'SELECT * FROM users WHER id = 1',
-      'SELECT * FROM users WHERE id = 1',
+      'SELCT * FROM users',
+      'SELECT * FROM users',
     );
 
     // Send the change, wait for TextDocuments to process it, then save
@@ -576,7 +593,7 @@ describe('TypeScript LSP features', () => {
     await new Promise((r) => setTimeout(r, 100));
     client.saveDocument(tsFileUri());
 
-    // Wait for diagnostics that no longer contain the WHER error
+    // Wait for diagnostics that no longer contain the SELCT error
     const deadline = Date.now() + 10000;
     let lastDiagnostics: LspDiagnostic[] = [];
     while (Date.now() < deadline) {
@@ -607,7 +624,10 @@ describe('TypeScript LSP features', () => {
   // ---- Feature 2: Auto-Complete ----
 
   test('completions inside SQL template returns items', async () => {
-    const pos = cursorAfter(TS_TEST_FILE_CONTENT, 'comp1 = sql`SELECT ');
+    const pos = cursorAfter(
+      TS_TEST_FILE_CONTENT,
+      'comp1 = sql.statement`SELECT ',
+    );
     const response = await client.request('textDocument/completion', {
       textDocument: { uri: tsFileUri() },
       position: pos,
@@ -618,7 +638,10 @@ describe('TypeScript LSP features', () => {
   });
 
   test('SelectClause context returns only functions', async () => {
-    const pos = cursorAfter(TS_TEST_FILE_CONTENT, 'comp1 = sql`SELECT ');
+    const pos = cursorAfter(
+      TS_TEST_FILE_CONTENT,
+      'comp1 = sql.statement`SELECT ',
+    );
     const response = await client.request('textDocument/completion', {
       textDocument: { uri: tsFileUri() },
       position: pos,
@@ -656,7 +679,10 @@ describe('TypeScript LSP features', () => {
   });
 
   test('prefix filtering narrows completions', async () => {
-    const pos = cursorAfter(TS_TEST_FILE_CONTENT, 'prefix = sql`SELECT cou');
+    const pos = cursorAfter(
+      TS_TEST_FILE_CONTENT,
+      'prefix = sql.statement`SELECT cou',
+    );
     const response = await client.request('textDocument/completion', {
       textDocument: { uri: tsFileUri() },
       position: pos,
@@ -682,7 +708,7 @@ describe('TypeScript LSP features', () => {
   test('ENGINE = context returns table engines', async () => {
     const pos = cursorAfter(
       TS_TEST_FILE_CONTENT,
-      'engine = sql`CREATE TABLE t ENGINE = ',
+      'engine = sql.statement`CREATE TABLE t ENGINE = ',
     );
     const response = await client.request('textDocument/completion', {
       textDocument: { uri: tsFileUri() },
@@ -708,7 +734,7 @@ describe('TypeScript LSP features', () => {
   test('FORMAT context returns formats', async () => {
     const pos = cursorAfter(
       TS_TEST_FILE_CONTENT,
-      'format = sql`SELECT * FORMAT ',
+      'format = sql.statement`SELECT * FORMAT ',
     );
     const response = await client.request('textDocument/completion', {
       textDocument: { uri: tsFileUri() },
@@ -733,7 +759,7 @@ describe('TypeScript LSP features', () => {
   test('SETTINGS context returns settings', async () => {
     const pos = cursorAfter(
       TS_TEST_FILE_CONTENT,
-      'settings = sql`SELECT * SETTINGS ',
+      'settings = sql.statement`SELECT * SETTINGS ',
     );
     const response = await client.request('textDocument/completion', {
       textDocument: { uri: tsFileUri() },
@@ -758,7 +784,7 @@ describe('TypeScript LSP features', () => {
   test('column definition context returns data types', async () => {
     const pos = cursorAfter(
       TS_TEST_FILE_CONTENT,
-      'coldef = sql`CREATE TABLE t (id ',
+      'coldef = sql.statement`CREATE TABLE t (id ',
     );
     const response = await client.request('textDocument/completion', {
       textDocument: { uri: tsFileUri() },
@@ -780,7 +806,7 @@ describe('TypeScript LSP features', () => {
   test('FROM context returns table functions', async () => {
     const pos = cursorAfter(
       TS_TEST_FILE_CONTENT,
-      'fromCtx = sql`SELECT * FROM ',
+      'fromCtx = sql.statement`SELECT * FROM ',
     );
     const response = await client.request('textDocument/completion', {
       textDocument: { uri: tsFileUri() },
@@ -800,7 +826,7 @@ describe('TypeScript LSP features', () => {
   test('hover on known function shows documentation', async () => {
     // Find "count" in the hover line
     const hoverLine = TS_TEST_FILE_CONTENT.split('\n').findIndex((l) =>
-      l.includes('sql`SELECT count()'),
+      l.includes('sql.statement`SELECT count()'),
     );
     // "count" starts after "SELECT "
     const lineText = TS_TEST_FILE_CONTENT.split('\n')[hoverLine];
@@ -829,7 +855,7 @@ describe('TypeScript LSP features', () => {
   test('hover on keyword shows documentation', async () => {
     // Hover over SELECT on the hover line
     const hoverLine = TS_TEST_FILE_CONTENT.split('\n').findIndex((l) =>
-      l.includes('sql`SELECT count()'),
+      l.includes('sql.statement`SELECT count()'),
     );
     const lineText = TS_TEST_FILE_CONTENT.split('\n')[hoverLine];
     const selectIdx = lineText.indexOf('SELECT');
@@ -859,7 +885,7 @@ describe('TypeScript LSP features', () => {
   test('hover on unknown word returns null', async () => {
     // "users" is a table name, not a known ClickHouse function/keyword
     const hoverLine = TS_TEST_FILE_CONTENT.split('\n').findIndex((l) =>
-      l.includes('sql`SELECT count() FROM users'),
+      l.includes('sql.statement`SELECT count() FROM users'),
     );
     const lineText = TS_TEST_FILE_CONTENT.split('\n')[hoverLine];
     const usersIdx = lineText.indexOf('users');
@@ -879,14 +905,14 @@ describe('TypeScript LSP features', () => {
 
   test('Format SQL action is offered for valid lowercase SQL', async () => {
     const fmtLine = TS_TEST_FILE_CONTENT.split('\n').findIndex((l) =>
-      l.includes('sql`select * from users'),
+      l.includes('sql.statement`select * from users'),
     );
 
     const response = await client.request('textDocument/codeAction', {
       textDocument: { uri: tsFileUri() },
       range: {
-        start: { line: fmtLine, character: 15 },
-        end: { line: fmtLine, character: 15 },
+        start: { line: fmtLine, character: 26 },
+        end: { line: fmtLine, character: 26 },
       },
       context: { diagnostics: [] },
     });
@@ -902,14 +928,14 @@ describe('TypeScript LSP features', () => {
 
   test('Format SQL produces uppercase keywords', async () => {
     const fmtLine = TS_TEST_FILE_CONTENT.split('\n').findIndex((l) =>
-      l.includes('sql`select * from users'),
+      l.includes('sql.statement`select * from users'),
     );
 
     const response = await client.request('textDocument/codeAction', {
       textDocument: { uri: tsFileUri() },
       range: {
-        start: { line: fmtLine, character: 15 },
-        end: { line: fmtLine, character: 15 },
+        start: { line: fmtLine, character: 26 },
+        end: { line: fmtLine, character: 26 },
       },
       context: { diagnostics: [] },
     });
@@ -937,14 +963,14 @@ describe('TypeScript LSP features', () => {
 
   test('Format SQL not offered for invalid SQL', async () => {
     const invalidLine = TS_TEST_FILE_CONTENT.split('\n').findIndex((l) =>
-      l.includes('sql`SELECT * FROM users WHER id = 1'),
+      l.includes('sql.statement`SELCT * FROM users'),
     );
 
     const response = await client.request('textDocument/codeAction', {
       textDocument: { uri: tsFileUri() },
       range: {
-        start: { line: invalidLine, character: 15 },
-        end: { line: invalidLine, character: 15 },
+        start: { line: invalidLine, character: 26 },
+        end: { line: invalidLine, character: 26 },
       },
       context: { diagnostics: [] },
     });
@@ -961,7 +987,7 @@ describe('TypeScript LSP features', () => {
   test('sumIf appears in completions after "sum" prefix', async () => {
     const pos = cursorAfter(
       TS_TEST_FILE_CONTENT,
-      'combPrefix = sql`SELECT sum',
+      'combPrefix = sql.statement`SELECT sum',
     );
     const response = await client.request('textDocument/completion', {
       textDocument: { uri: tsFileUri() },
@@ -978,7 +1004,7 @@ describe('TypeScript LSP features', () => {
   test('combinator function has documentation', async () => {
     const pos = cursorAfter(
       TS_TEST_FILE_CONTENT,
-      'combPrefix = sql`SELECT sum',
+      'combPrefix = sql.statement`SELECT sum',
     );
     const response = await client.request('textDocument/completion', {
       textDocument: { uri: tsFileUri() },
@@ -1025,7 +1051,10 @@ describe('TypeScript LSP features', () => {
 
   test('GROUP BY appears in default context completions', async () => {
     // Use the empty SQL template which triggers Default context (all completions)
-    const pos = cursorAfter(TS_TEST_FILE_CONTENT, 'defaultCtx = sql`');
+    const pos = cursorAfter(
+      TS_TEST_FILE_CONTENT,
+      'defaultCtx = sql.statement`',
+    );
     const response = await client.request('textDocument/completion', {
       textDocument: { uri: tsFileUri() },
       position: pos,
@@ -1039,7 +1068,10 @@ describe('TypeScript LSP features', () => {
   });
 
   test('ORDER BY appears in default context completions', async () => {
-    const pos = cursorAfter(TS_TEST_FILE_CONTENT, 'defaultCtx = sql`');
+    const pos = cursorAfter(
+      TS_TEST_FILE_CONTENT,
+      'defaultCtx = sql.statement`',
+    );
     const response = await client.request('textDocument/completion', {
       textDocument: { uri: tsFileUri() },
       position: pos,
@@ -1070,7 +1102,10 @@ describe('Snippet support toggle', () => {
       client.openDocument(uri, 'typescript', TS_TEST_FILE_CONTENT);
       await client.waitForDiagnostics(uri);
 
-      const pos = cursorAfter(TS_TEST_FILE_CONTENT, 'prefix = sql`SELECT cou');
+      const pos = cursorAfter(
+        TS_TEST_FILE_CONTENT,
+        'prefix = sql.statement`SELECT cou',
+      );
       const response = await client.request('textDocument/completion', {
         textDocument: { uri },
         position: pos,
@@ -1112,7 +1147,10 @@ describe('Snippet support toggle', () => {
       client.openDocument(uri, 'typescript', TS_TEST_FILE_CONTENT);
       await client.waitForDiagnostics(uri);
 
-      const pos = cursorAfter(TS_TEST_FILE_CONTENT, 'prefix = sql`SELECT cou');
+      const pos = cursorAfter(
+        TS_TEST_FILE_CONTENT,
+        'prefix = sql.statement`SELECT cou',
+      );
       const response = await client.request('textDocument/completion', {
         textDocument: { uri },
         position: pos,

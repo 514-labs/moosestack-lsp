@@ -106,6 +106,10 @@ test('validateSqlLocations Tests', async (t) => {
         endLine: 61,
         endColumn: 6,
         templateText: 'SLECT ${...} FROM ${...}', // typo
+        tagKind: 'statement',
+        tagLine: 1,
+        tagColumn: 1,
+        tagEndColumn: 14,
       },
     ];
 
@@ -145,6 +149,10 @@ test('validateSqlLocations Tests', async (t) => {
         endLine: 61,
         endColumn: 6,
         templateText: 'SELECT ${...} FROM ${...}',
+        tagKind: 'statement',
+        tagLine: 1,
+        tagColumn: 1,
+        tagEndColumn: 14,
       },
     ];
 
@@ -173,6 +181,10 @@ test('validateSqlLocations Tests', async (t) => {
         endLine: 61,
         endColumn: 6,
         templateText: 'SLECT ${...}',
+        tagKind: 'statement',
+        tagLine: 1,
+        tagColumn: 1,
+        tagEndColumn: 14,
       },
       {
         id: 'app/apis/bar.ts:100:22',
@@ -182,6 +194,10 @@ test('validateSqlLocations Tests', async (t) => {
         endLine: 105,
         endColumn: 6,
         templateText: 'SELCT ${...}',
+        tagKind: 'statement',
+        tagLine: 1,
+        tagColumn: 1,
+        tagEndColumn: 14,
       },
     ];
 
@@ -220,6 +236,10 @@ test('validateSqlLocations Tests', async (t) => {
         endLine: 15,
         endColumn: 6,
         templateText: 'SLECT ${...}',
+        tagKind: 'statement',
+        tagLine: 1,
+        tagColumn: 1,
+        tagEndColumn: 14,
       },
       {
         id: 'app/apis/bar.ts:54:22',
@@ -229,6 +249,10 @@ test('validateSqlLocations Tests', async (t) => {
         endLine: 61,
         endColumn: 6,
         templateText: 'SELCT ${...}',
+        tagKind: 'statement',
+        tagLine: 1,
+        tagColumn: 1,
+        tagEndColumn: 14,
       },
     ];
 
@@ -268,6 +292,10 @@ test('validateSqlLocations Tests', async (t) => {
           endLine: 1,
           endColumn: 50,
           templateText: 'SELECT ${...} FROM ${...}',
+          tagKind: 'statement',
+          tagLine: 1,
+          tagColumn: 1,
+          tagEndColumn: 14,
         },
       ];
 
@@ -290,4 +318,112 @@ test('validateSqlLocations Tests', async (t) => {
       assert.ok(validatedSql.includes('FROM'));
     },
   );
+
+  await t.test('skips validation for fragment tag kind', () => {
+    const locations: SqlLocation[] = [
+      {
+        id: 'test.ts:1:1',
+        file: '/project/test.ts',
+        line: 1,
+        column: 1,
+        endLine: 1,
+        endColumn: 50,
+        templateText: 'WHERE id = 1',
+        tagKind: 'fragment',
+        tagLine: 1,
+        tagColumn: 1,
+        tagEndColumn: 13,
+      },
+    ];
+
+    let validateCalled = false;
+    const mockValidateSql: ValidateSqlFn = () => {
+      validateCalled = true;
+      return { valid: false, error: { message: 'Should not be called' } };
+    };
+
+    const mockCreateDiagnostic: CreateLocationDiagnosticFn = () => ({
+      uri: 'file:///project/test.ts',
+      diagnostic: createMockDiagnostic('Should not be called'),
+    });
+
+    const result = validateSqlLocations(
+      locations,
+      mockValidateSql,
+      mockCreateDiagnostic,
+    );
+
+    assert.strictEqual(validateCalled, false, 'should not validate fragments');
+    // No validation diagnostics, but no deprecation either (it's a fragment)
+    assert.strictEqual(result.size, 0);
+  });
+
+  await t.test('emits deprecation diagnostic for bare sql tag', () => {
+    const locations: SqlLocation[] = [
+      {
+        id: 'test.ts:5:10',
+        file: '/project/test.ts',
+        line: 5,
+        column: 10,
+        endLine: 5,
+        endColumn: 50,
+        templateText: 'SELECT * FROM users',
+        tagKind: 'bare',
+        tagLine: 5,
+        tagColumn: 5,
+        tagEndColumn: 8,
+      },
+    ];
+
+    const mockValidateSql: ValidateSqlFn = () => ({ valid: true });
+    const mockCreateDiagnostic: CreateLocationDiagnosticFn = () => ({
+      uri: 'file:///project/test.ts',
+      diagnostic: createMockDiagnostic('unused'),
+    });
+
+    const result = validateSqlLocations(
+      locations,
+      mockValidateSql,
+      mockCreateDiagnostic,
+    );
+
+    // Should have deprecation hint even though SQL is valid
+    assert.strictEqual(result.size, 1);
+    const diagnostics = result.get('file:///project/test.ts');
+    assert.ok(diagnostics);
+    assert.strictEqual(diagnostics.length, 1);
+    assert.ok(diagnostics[0].message.includes('deprecated'));
+  });
+
+  await t.test('does not emit deprecation for statement tag kind', () => {
+    const locations: SqlLocation[] = [
+      {
+        id: 'test.ts:1:1',
+        file: '/project/test.ts',
+        line: 1,
+        column: 1,
+        endLine: 1,
+        endColumn: 50,
+        templateText: 'SELECT * FROM users',
+        tagKind: 'statement',
+        tagLine: 1,
+        tagColumn: 1,
+        tagEndColumn: 14,
+      },
+    ];
+
+    const mockValidateSql: ValidateSqlFn = () => ({ valid: true });
+    const mockCreateDiagnostic: CreateLocationDiagnosticFn = () => ({
+      uri: 'file:///project/test.ts',
+      diagnostic: createMockDiagnostic('unused'),
+    });
+
+    const result = validateSqlLocations(
+      locations,
+      mockValidateSql,
+      mockCreateDiagnostic,
+    );
+
+    assert.strictEqual(result.size, 0);
+  });
 });

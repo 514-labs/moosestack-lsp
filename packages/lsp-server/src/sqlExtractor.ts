@@ -1,28 +1,25 @@
 import ts from 'typescript';
-import type { SqlLocation } from './sqlLocations';
+import type { SqlLocation, TagKind } from './sqlLocations';
 
 /**
- * Check if the sql tag comes from @514labs/moose-lib.
- * Falls back to returning true if symbol can't be resolved
- * (better to have false positives than miss real sql queries).
+ * Result of checking whether a tagged template is a moose-lib sql tag.
+ * Returns the tag kind if it's a match, or null if not.
  */
-function isMooseLibSqlTag(
-  node: ts.TaggedTemplateExpression,
+type SqlTagMatch = { kind: TagKind } | null;
+
+/**
+ * Check if the tag expression originates from @514labs/moose-lib.
+ * Resolves the symbol for the root `sql` identifier (works for both
+ * `sql` and `sql.statement` / `sql.fragment` since the object is the same import).
+ */
+function isFromMooseLib(
+  identifier: ts.Identifier,
   typeChecker: ts.TypeChecker,
 ): boolean {
-  const tag = node.tag;
-
-  // Must be a simple identifier `sql`
-  if (!ts.isIdentifier(tag) || tag.text !== 'sql') {
-    return false;
-  }
-
-  const symbol = typeChecker.getSymbolAtLocation(tag);
+  const symbol = typeChecker.getSymbolAtLocation(identifier);
   if (symbol?.declarations?.length) {
-    // Check if any declaration originates from moose-lib
-    const isFromMooseLib = symbol.declarations.some((decl) => {
-      const sourceFile = decl.getSourceFile();
-      const fileName = sourceFile.fileName;
+    const isFromLib = symbol.declarations.some((decl) => {
+      const fileName = decl.getSourceFile().fileName;
       return (
         fileName.includes('moose-lib') ||
         fileName.includes('@514labs/moose-lib') ||
@@ -30,14 +27,46 @@ function isMooseLibSqlTag(
         fileName.includes('sqlHelpers')
       );
     });
-    if (isFromMooseLib) {
-      return true;
+    if (isFromLib) return true;
+  }
+  // Fallback: if we can't resolve the symbol, assume it's our sql tag
+  return true;
+}
+
+/**
+ * Detect which sql tag variant is used and verify it comes from moose-lib.
+ *
+ * Matches:
+ *   sql`...`           → bare
+ *   sql.statement`...` → statement
+ *   sql.fragment`...`  → fragment
+ */
+function matchSqlTag(
+  node: ts.TaggedTemplateExpression,
+  typeChecker: ts.TypeChecker,
+): SqlTagMatch {
+  const tag = node.tag;
+
+  // Case 1: bare `sql` identifier
+  if (ts.isIdentifier(tag) && tag.text === 'sql') {
+    return isFromMooseLib(tag, typeChecker) ? { kind: 'bare' } : null;
+  }
+
+  // Case 2: property access `sql.statement` or `sql.fragment`
+  if (
+    ts.isPropertyAccessExpression(tag) &&
+    ts.isIdentifier(tag.expression) &&
+    tag.expression.text === 'sql'
+  ) {
+    const propName = tag.name.text;
+    if (propName === 'statement' || propName === 'fragment') {
+      return isFromMooseLib(tag.expression, typeChecker)
+        ? { kind: propName }
+        : null;
     }
   }
 
-  // Fallback: if we can't resolve the symbol, assume it's our sql tag
-  // (better to have false positives than miss real sql queries)
-  return true;
+  return null;
 }
 
 /**
@@ -59,16 +88,37 @@ function extractTemplateText(template: ts.TemplateLiteral): string {
 }
 
 /**
+ * Get the range of the full tag expression (e.g., `sql` or `sql.statement`).
+ * Returns 1-based line/column for the tag (used for deprecation diagnostics).
+ */
+function getTagRange(
+  node: ts.TaggedTemplateExpression,
+  sourceFile: ts.SourceFile,
+): { tagLine: number; tagColumn: number; tagEndColumn: number } {
+  const tagStart = sourceFile.getLineAndCharacterOfPosition(
+    node.tag.getStart(),
+  );
+  const tagEnd = sourceFile.getLineAndCharacterOfPosition(node.tag.getEnd());
+  return {
+    tagLine: tagStart.line + 1,
+    tagColumn: tagStart.character + 1,
+    tagEndColumn: tagEnd.character + 1,
+  };
+}
+
+/**
  * Extract SQL location from a tagged template expression
  */
 function extractSqlLocation(
   node: ts.TaggedTemplateExpression,
   sourceFile: ts.SourceFile,
+  tagKind: TagKind,
 ): SqlLocation {
   const start = sourceFile.getLineAndCharacterOfPosition(
     node.template.getStart(),
   );
   const end = sourceFile.getLineAndCharacterOfPosition(node.template.getEnd());
+  const { tagLine, tagColumn, tagEndColumn } = getTagRange(node, sourceFile);
 
   return {
     id: `${sourceFile.fileName}:${start.line + 1}:${start.character + 1}`,
@@ -78,6 +128,10 @@ function extractSqlLocation(
     endLine: end.line + 1,
     endColumn: end.character + 1,
     templateText: extractTemplateText(node.template),
+    tagKind,
+    tagLine,
+    tagColumn,
+    tagEndColumn,
   };
 }
 
@@ -92,11 +146,11 @@ export function extractSqlLocations(
   const locations: SqlLocation[] = [];
 
   function visit(node: ts.Node): void {
-    if (
-      ts.isTaggedTemplateExpression(node) &&
-      isMooseLibSqlTag(node, typeChecker)
-    ) {
-      locations.push(extractSqlLocation(node, sourceFile));
+    if (ts.isTaggedTemplateExpression(node)) {
+      const match = matchSqlTag(node, typeChecker);
+      if (match) {
+        locations.push(extractSqlLocation(node, sourceFile, match.kind));
+      }
     }
     ts.forEachChild(node, visit);
   }

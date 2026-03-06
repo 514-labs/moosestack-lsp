@@ -191,6 +191,23 @@ export function createFormatSqlEdit(
 }
 
 /**
+ * Checks if a tag expression is one of the sql tag variants:
+ *   sql`...`, sql.statement`...`, sql.fragment`...`
+ */
+function isSqlTagExpression(tag: ts.Expression): boolean {
+  if (ts.isIdentifier(tag) && tag.text === 'sql') return true;
+  if (
+    ts.isPropertyAccessExpression(tag) &&
+    ts.isIdentifier(tag.expression) &&
+    tag.expression.text === 'sql'
+  ) {
+    const prop = tag.name.text;
+    return prop === 'statement' || prop === 'fragment';
+  }
+  return false;
+}
+
+/**
  * Finds a TaggedTemplateExpression by its location ID.
  */
 export function findTemplateNodeById(
@@ -200,16 +217,13 @@ export function findTemplateNodeById(
   let targetNode: ts.TaggedTemplateExpression | undefined;
 
   function visit(node: ts.Node): void {
-    if (ts.isTaggedTemplateExpression(node)) {
-      const tag = node.tag;
-      if (ts.isIdentifier(tag) && tag.text === 'sql') {
-        const start = sourceFile.getLineAndCharacterOfPosition(
-          node.template.getStart(),
-        );
-        const id = `${sourceFile.fileName}:${start.line + 1}:${start.character + 1}`;
-        if (id === locationId) {
-          targetNode = node;
-        }
+    if (ts.isTaggedTemplateExpression(node) && isSqlTagExpression(node.tag)) {
+      const start = sourceFile.getLineAndCharacterOfPosition(
+        node.template.getStart(),
+      );
+      const id = `${sourceFile.fileName}:${start.line + 1}:${start.character + 1}`;
+      if (id === locationId) {
+        targetNode = node;
       }
     }
     if (!targetNode) {
@@ -219,4 +233,26 @@ export function findTemplateNodeById(
 
   visit(sourceFile);
   return targetNode;
+}
+
+/**
+ * Creates text edits to replace a bare `sql` tag with `sql.statement` or `sql.fragment`.
+ */
+export function createDeprecationFixEdit(
+  location: SqlLocation,
+  replacement: 'sql.statement' | 'sql.fragment',
+): TextEdit {
+  return {
+    range: {
+      start: {
+        line: location.tagLine - 1,
+        character: location.tagColumn - 1,
+      },
+      end: {
+        line: location.tagLine - 1,
+        character: location.tagEndColumn - 1,
+      },
+    },
+    newText: replacement,
+  };
 }

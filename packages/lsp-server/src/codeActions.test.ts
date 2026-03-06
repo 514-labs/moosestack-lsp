@@ -2,6 +2,7 @@ import assert from 'node:assert';
 import { test } from 'node:test';
 import ts from 'typescript';
 import {
+  createDeprecationFixEdit,
   createFormatSqlEdit,
   extractOriginalExpressions,
   findSqlTemplateAtPosition,
@@ -19,6 +20,10 @@ test('findSqlTemplateAtPosition Tests', async (t) => {
       endLine: 5,
       endColumn: 50,
       templateText: 'SELECT * FROM users',
+      tagKind: 'statement',
+      tagLine: 1,
+      tagColumn: 1,
+      tagEndColumn: 14,
     },
     {
       id: 'test.ts:10:5',
@@ -28,6 +33,10 @@ test('findSqlTemplateAtPosition Tests', async (t) => {
       endLine: 15,
       endColumn: 10,
       templateText: 'SELECT ${...} FROM ${...}',
+      tagKind: 'statement',
+      tagLine: 1,
+      tagColumn: 1,
+      tagEndColumn: 14,
     },
   ];
 
@@ -247,5 +256,51 @@ test('createFormatSqlEdit Tests', async (t) => {
       edit.newText.endsWith('\n    '),
       'Should end with newline and 4-space indent',
     );
+  });
+});
+
+test('createDeprecationFixEdit', async (t) => {
+  await t.test('creates edit to replace sql with sql.statement', () => {
+    const location: SqlLocation = {
+      id: 'test.ts:5:10',
+      file: '/project/test.ts',
+      line: 5,
+      column: 10,
+      endLine: 5,
+      endColumn: 50,
+      templateText: 'SELECT * FROM users',
+      tagKind: 'bare',
+      tagLine: 5,
+      tagColumn: 7,
+      tagEndColumn: 10,
+    };
+
+    const edit = createDeprecationFixEdit(location, 'sql.statement');
+
+    assert.strictEqual(edit.newText, 'sql.statement');
+    assert.strictEqual(edit.range.start.line, 4); // 0-indexed
+    assert.strictEqual(edit.range.start.character, 6); // 0-indexed
+    assert.strictEqual(edit.range.end.line, 4);
+    assert.strictEqual(edit.range.end.character, 9);
+  });
+
+  await t.test('creates edit to replace sql with sql.fragment', () => {
+    const location: SqlLocation = {
+      id: 'test.ts:5:10',
+      file: '/project/test.ts',
+      line: 5,
+      column: 10,
+      endLine: 5,
+      endColumn: 50,
+      templateText: 'WHERE id = 1',
+      tagKind: 'bare',
+      tagLine: 5,
+      tagColumn: 7,
+      tagEndColumn: 10,
+    };
+
+    const edit = createDeprecationFixEdit(location, 'sql.fragment');
+
+    assert.strictEqual(edit.newText, 'sql.fragment');
   });
 });

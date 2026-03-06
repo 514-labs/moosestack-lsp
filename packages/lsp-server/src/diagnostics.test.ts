@@ -1,7 +1,12 @@
 import assert from 'node:assert';
 import { test } from 'node:test';
-import { DiagnosticSeverity } from 'vscode-languageserver/node';
-import { createLocationDiagnostic } from './diagnostics';
+import { DiagnosticSeverity, DiagnosticTag } from 'vscode-languageserver/node';
+import {
+  createDeprecationDiagnostic,
+  createLocationDiagnostic,
+  DEPRECATED_SQL_TAG_MESSAGE,
+  DEPRECATED_SQL_TAG_SOURCE,
+} from './diagnostics';
 import type { SqlLocation } from './sqlLocations';
 
 test('createLocationDiagnostic Tests', async (t) => {
@@ -16,6 +21,10 @@ test('createLocationDiagnostic Tests', async (t) => {
         endLine: 61,
         endColumn: 6,
         templateText: 'SELECT ${...} FROM ${...}',
+        tagKind: 'statement',
+        tagLine: 1,
+        tagColumn: 1,
+        tagEndColumn: 14,
       };
       const validationError = { message: 'Syntax error near SLECT' };
 
@@ -34,6 +43,10 @@ test('createLocationDiagnostic Tests', async (t) => {
       endLine: 61,
       endColumn: 6,
       templateText: 'SELECT ${...}',
+      tagKind: 'statement',
+      tagLine: 1,
+      tagColumn: 1,
+      tagEndColumn: 14,
     };
     const validationError = { message: 'Error' };
 
@@ -55,6 +68,10 @@ test('createLocationDiagnostic Tests', async (t) => {
       endLine: 1,
       endColumn: 50,
       templateText: 'SLECT * FROM users',
+      tagKind: 'statement',
+      tagLine: 1,
+      tagColumn: 1,
+      tagEndColumn: 14,
     };
     const validationError = { message: 'Expected SELECT, found SLECT' };
 
@@ -72,6 +89,10 @@ test('createLocationDiagnostic Tests', async (t) => {
       endLine: 1,
       endColumn: 50,
       templateText: 'SELECT',
+      tagKind: 'statement',
+      tagLine: 1,
+      tagColumn: 1,
+      tagEndColumn: 14,
     };
     const validationError = { message: 'Error' };
 
@@ -90,6 +111,10 @@ test('createLocationDiagnostic Tests', async (t) => {
       endLine: 61,
       endColumn: 6,
       templateText: 'SELECT',
+      tagKind: 'statement',
+      tagLine: 1,
+      tagColumn: 1,
+      tagEndColumn: 14,
     };
     const validationError = { message: 'Error' };
 
@@ -97,5 +122,55 @@ test('createLocationDiagnostic Tests', async (t) => {
 
     // The message should indicate it's from an inline SQL template
     assert.ok(diagnostic.message.includes('Invalid SQL'));
+  });
+});
+
+test('createDeprecationDiagnostic Tests', async (t) => {
+  await t.test('creates hint diagnostic with Deprecated tag', () => {
+    const location: SqlLocation = {
+      id: 'test.ts:5:10',
+      file: '/project/test.ts',
+      line: 5,
+      column: 10,
+      endLine: 5,
+      endColumn: 50,
+      templateText: 'SELECT * FROM users',
+      tagKind: 'bare',
+      tagLine: 5,
+      tagColumn: 7,
+      tagEndColumn: 10,
+    };
+
+    const { uri, diagnostic } = createDeprecationDiagnostic(location);
+
+    assert.strictEqual(uri, 'file:///project/test.ts');
+    assert.strictEqual(diagnostic.severity, DiagnosticSeverity.Hint);
+    assert.ok(diagnostic.tags?.includes(DiagnosticTag.Deprecated));
+    assert.strictEqual(diagnostic.source, DEPRECATED_SQL_TAG_SOURCE);
+    assert.strictEqual(diagnostic.message, DEPRECATED_SQL_TAG_MESSAGE);
+  });
+
+  await t.test('diagnostic range covers only the tag identifier', () => {
+    const location: SqlLocation = {
+      id: 'test.ts:10:20',
+      file: '/project/test.ts',
+      line: 10,
+      column: 20,
+      endLine: 12,
+      endColumn: 5,
+      templateText: 'SELECT 1',
+      tagKind: 'bare',
+      tagLine: 10,
+      tagColumn: 17,
+      tagEndColumn: 20,
+    };
+
+    const { diagnostic } = createDeprecationDiagnostic(location);
+
+    // Range should be on the tag, not the template
+    assert.strictEqual(diagnostic.range.start.line, 9); // 0-indexed
+    assert.strictEqual(diagnostic.range.start.character, 16); // 0-indexed
+    assert.strictEqual(diagnostic.range.end.line, 9);
+    assert.strictEqual(diagnostic.range.end.character, 19);
   });
 });

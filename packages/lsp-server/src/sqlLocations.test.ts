@@ -20,6 +20,10 @@ test('loadSqlLocations Tests', async (t) => {
           endColumn: 6,
           templateText:
             '\n      SELECT \n        ${...},\n        ${...}\n      FROM ${...}\n    ',
+          tagKind: 'statement',
+          tagLine: 1,
+          tagColumn: 1,
+          tagEndColumn: 14,
         },
       ],
     };

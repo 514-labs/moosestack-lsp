@@ -3,9 +3,15 @@ import {
   type Connection,
   type Diagnostic,
   DiagnosticSeverity,
+  DiagnosticTag,
   type Range,
 } from 'vscode-languageserver/node';
 import type { SqlLocation } from './sqlLocations';
+
+export const DEPRECATED_SQL_TAG_MESSAGE =
+  "The 'sql' tag is deprecated. Use 'sql.statement' for complete SQL statements or 'sql.fragment' for SQL expressions and conditions.";
+
+export const DEPRECATED_SQL_TAG_SOURCE = 'moose-sql-deprecated';
 
 /**
  * Creates an LSP diagnostic from a SQL validation error for a SqlLocation.
@@ -34,6 +40,37 @@ export function createLocationDiagnostic(
     severity: DiagnosticSeverity.Error,
     message: `Invalid SQL: ${validationError.message}`,
     source: 'moose-sql',
+  };
+
+  return { uri, diagnostic };
+}
+
+/**
+ * Creates a deprecation hint diagnostic for bare `sql` tag usage.
+ */
+export function createDeprecationDiagnostic(location: SqlLocation): {
+  uri: string;
+  diagnostic: Diagnostic;
+} {
+  const uri = `file://${location.file}`;
+
+  const range: Range = {
+    start: {
+      line: location.tagLine - 1,
+      character: location.tagColumn - 1,
+    },
+    end: {
+      line: location.tagLine - 1,
+      character: location.tagEndColumn - 1,
+    },
+  };
+
+  const diagnostic: Diagnostic = {
+    range,
+    severity: DiagnosticSeverity.Hint,
+    tags: [DiagnosticTag.Deprecated],
+    message: DEPRECATED_SQL_TAG_MESSAGE,
+    source: DEPRECATED_SQL_TAG_SOURCE,
   };
 
   return { uri, diagnostic };

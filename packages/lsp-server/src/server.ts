@@ -31,12 +31,16 @@ import {
 } from './clickhouseData';
 import { detectClickHouseVersion } from './clickhouseVersion';
 import {
+  createDeprecationFixEdit,
   createFormatSqlEdit,
   findSqlTemplateAtPosition,
   findTemplateNodeById,
 } from './codeActions';
 // completions.ts still used by tests but server uses Rust completions
-import { createLocationDiagnostic } from './diagnostics';
+import {
+  createLocationDiagnostic,
+  DEPRECATED_SQL_TAG_SOURCE,
+} from './diagnostics';
 import { createHoverContent, findHoverInfo, getWordAtPosition } from './hover';
 import { detectMooseProjectWithInfo } from './projectDetector';
 import { createPythonService, type PythonService } from './pythonService';
@@ -453,7 +457,7 @@ connection.onInitialize(
           },
         },
         codeActionProvider: {
-          codeActionKinds: ['source.formatSql'],
+          codeActionKinds: ['source.formatSql', CodeActionKind.QuickFix],
         },
         completionProvider: {
           triggerCharacters: ['.', '(', ' '],
@@ -551,25 +555,63 @@ connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
 
     if (!location) return [];
 
-    // Find the AST node to compute the edit
-    const node = findTemplateNodeById(sourceFile, location.id);
-    if (!node) return [];
+    const actions: CodeAction[] = [];
 
-    // Compute the edit directly (don't defer to resolve)
-    const edit = createFormatSqlEdit(sourceFile, node);
-    if (!edit) return [];
-
-    return [
-      {
-        title: 'Format SQL',
-        kind: `${CodeActionKind.Source}.formatSql`,
-        edit: {
-          changes: {
-            [params.textDocument.uri]: [edit],
+    // Quick fixes for deprecated bare `sql` tag
+    const hasDeprecationDiag = params.context.diagnostics.some(
+      (d) => d.source === DEPRECATED_SQL_TAG_SOURCE,
+    );
+    if (hasDeprecationDiag && location.tagKind === 'bare') {
+      actions.push(
+        {
+          title: 'Convert to sql.statement',
+          kind: CodeActionKind.QuickFix,
+          diagnostics: params.context.diagnostics.filter(
+            (d) => d.source === DEPRECATED_SQL_TAG_SOURCE,
+          ),
+          edit: {
+            changes: {
+              [params.textDocument.uri]: [
+                createDeprecationFixEdit(location, 'sql.statement'),
+              ],
+            },
           },
         },
-      },
-    ];
+        {
+          title: 'Convert to sql.fragment',
+          kind: CodeActionKind.QuickFix,
+          diagnostics: params.context.diagnostics.filter(
+            (d) => d.source === DEPRECATED_SQL_TAG_SOURCE,
+          ),
+          edit: {
+            changes: {
+              [params.textDocument.uri]: [
+                createDeprecationFixEdit(location, 'sql.fragment'),
+              ],
+            },
+          },
+        },
+      );
+    }
+
+    // Format SQL action
+    const node = findTemplateNodeById(sourceFile, location.id);
+    if (node) {
+      const edit = createFormatSqlEdit(sourceFile, node);
+      if (edit) {
+        actions.push({
+          title: 'Format SQL',
+          kind: `${CodeActionKind.Source}.formatSql`,
+          edit: {
+            changes: {
+              [params.textDocument.uri]: [edit],
+            },
+          },
+        });
+      }
+    }
+
+    return actions;
   } catch {
     return [];
   }

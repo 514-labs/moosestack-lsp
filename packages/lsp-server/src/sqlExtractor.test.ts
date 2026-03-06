@@ -26,11 +26,22 @@ function createTestProgram(files: Record<string, string>): {
   fs.mkdirSync(mooseLibDir, { recursive: true });
   fs.writeFileSync(
     path.join(mooseLibDir, 'index.d.ts'),
-    `export declare function sql(strings: TemplateStringsArray, ...values: any[]): string;`,
+    [
+      `type SqlTag = ((strings: TemplateStringsArray, ...values: any[]) => string) & {`,
+      `  statement: (strings: TemplateStringsArray, ...values: any[]) => string;`,
+      `  fragment: (strings: TemplateStringsArray, ...values: any[]) => string;`,
+      `};`,
+      `export declare const sql: SqlTag;`,
+    ].join('\n'),
   );
   fs.writeFileSync(
     path.join(mooseLibDir, 'index.js'),
-    `module.exports.sql = function sql(strings, ...values) { return strings.join(''); };`,
+    [
+      `function sqlTag(strings, ...values) { return strings.join(''); }`,
+      `sqlTag.statement = sqlTag;`,
+      `sqlTag.fragment = sqlTag;`,
+      `module.exports.sql = sqlTag;`,
+    ].join('\n'),
   );
   fs.writeFileSync(
     path.join(mooseLibDir, 'package.json'),
@@ -252,6 +263,134 @@ const query = sql\`SELECT * FROM users\`;
         assert.strictEqual(locations[0].line, 3);
         // Column should point to the start of the template literal
         assert.ok(locations[0].column > 0);
+      } finally {
+        cleanupTestProject(tmpDir);
+      }
+    });
+
+    it('sets tagKind to bare for sql`...`', () => {
+      const { program, tmpDir } = createTestProgram({
+        'src/index.ts': `
+import { sql } from '@514labs/moose-lib';
+const query = sql\`SELECT * FROM users\`;
+`,
+      });
+
+      try {
+        const sourceFile = program.getSourceFile(
+          path.join(tmpDir, 'src/index.ts'),
+        );
+        assert.ok(sourceFile);
+
+        const typeChecker = program.getTypeChecker();
+        const locations = extractSqlLocations(sourceFile, typeChecker);
+
+        assert.strictEqual(locations.length, 1);
+        assert.strictEqual(locations[0].tagKind, 'bare');
+      } finally {
+        cleanupTestProject(tmpDir);
+      }
+    });
+
+    it('sets tagKind to statement for sql.statement`...`', () => {
+      const { program, tmpDir } = createTestProgram({
+        'src/index.ts': `
+import { sql } from '@514labs/moose-lib';
+const query = sql.statement\`SELECT * FROM users\`;
+`,
+      });
+
+      try {
+        const sourceFile = program.getSourceFile(
+          path.join(tmpDir, 'src/index.ts'),
+        );
+        assert.ok(sourceFile);
+
+        const typeChecker = program.getTypeChecker();
+        const locations = extractSqlLocations(sourceFile, typeChecker);
+
+        assert.strictEqual(locations.length, 1);
+        assert.strictEqual(locations[0].tagKind, 'statement');
+        assert.strictEqual(locations[0].templateText, 'SELECT * FROM users');
+      } finally {
+        cleanupTestProject(tmpDir);
+      }
+    });
+
+    it('sets tagKind to fragment for sql.fragment`...`', () => {
+      const { program, tmpDir } = createTestProgram({
+        'src/index.ts': `
+import { sql } from '@514labs/moose-lib';
+const clause = sql.fragment\`WHERE id = 1\`;
+`,
+      });
+
+      try {
+        const sourceFile = program.getSourceFile(
+          path.join(tmpDir, 'src/index.ts'),
+        );
+        assert.ok(sourceFile);
+
+        const typeChecker = program.getTypeChecker();
+        const locations = extractSqlLocations(sourceFile, typeChecker);
+
+        assert.strictEqual(locations.length, 1);
+        assert.strictEqual(locations[0].tagKind, 'fragment');
+        assert.strictEqual(locations[0].templateText, 'WHERE id = 1');
+      } finally {
+        cleanupTestProject(tmpDir);
+      }
+    });
+
+    it('extracts all three tag variants from the same file', () => {
+      const { program, tmpDir } = createTestProgram({
+        'src/index.ts': `
+import { sql } from '@514labs/moose-lib';
+const a = sql\`SELECT 1\`;
+const b = sql.statement\`SELECT 2\`;
+const c = sql.fragment\`WHERE x = 1\`;
+`,
+      });
+
+      try {
+        const sourceFile = program.getSourceFile(
+          path.join(tmpDir, 'src/index.ts'),
+        );
+        assert.ok(sourceFile);
+
+        const typeChecker = program.getTypeChecker();
+        const locations = extractSqlLocations(sourceFile, typeChecker);
+
+        assert.strictEqual(locations.length, 3);
+        assert.strictEqual(locations[0].tagKind, 'bare');
+        assert.strictEqual(locations[1].tagKind, 'statement');
+        assert.strictEqual(locations[2].tagKind, 'fragment');
+      } finally {
+        cleanupTestProject(tmpDir);
+      }
+    });
+
+    it('includes tag position info for deprecation diagnostics', () => {
+      const { program, tmpDir } = createTestProgram({
+        'src/index.ts': `import { sql } from '@514labs/moose-lib';
+const query = sql\`SELECT 1\`;
+`,
+      });
+
+      try {
+        const sourceFile = program.getSourceFile(
+          path.join(tmpDir, 'src/index.ts'),
+        );
+        assert.ok(sourceFile);
+
+        const typeChecker = program.getTypeChecker();
+        const locations = extractSqlLocations(sourceFile, typeChecker);
+
+        assert.strictEqual(locations.length, 1);
+        // Tag position should cover the `sql` identifier
+        assert.strictEqual(locations[0].tagLine, 2);
+        assert.ok(locations[0].tagColumn > 0);
+        assert.ok(locations[0].tagEndColumn > locations[0].tagColumn);
       } finally {
         cleanupTestProject(tmpDir);
       }
