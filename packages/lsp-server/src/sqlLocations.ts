@@ -12,6 +12,12 @@ export interface SqlLocation {
   endColumn: number;
   templateText: string;
   tagKind: SqlTagKind;
+  /** 1-indexed line of the tag identifier (e.g., `sql` or `sql.statement`) */
+  tagLine: number;
+  /** 1-indexed column of the tag identifier start */
+  tagColumn: number;
+  /** 1-indexed column of the tag identifier end */
+  tagEndColumn: number;
 }
 
 /**

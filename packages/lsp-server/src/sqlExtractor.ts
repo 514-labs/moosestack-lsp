@@ -95,6 +95,12 @@ function extractSqlLocation(
   );
   const end = sourceFile.getLineAndCharacterOfPosition(node.template.getEnd());
 
+  // Tag position: covers `sql`, `sql.statement`, or `sql.fragment`
+  const tagStart = sourceFile.getLineAndCharacterOfPosition(
+    node.tag.getStart(),
+  );
+  const tagEnd = sourceFile.getLineAndCharacterOfPosition(node.tag.getEnd());
+
   return {
     id: `${sourceFile.fileName}:${start.line + 1}:${start.character + 1}`,
     file: sourceFile.fileName,
@@ -104,6 +110,9 @@ function extractSqlLocation(
     endColumn: end.character + 1,
     templateText: extractTemplateText(node.template),
     tagKind,
+    tagLine: tagStart.line + 1,
+    tagColumn: tagStart.character + 1,
+    tagEndColumn: tagEnd.character + 1,
   };
 }
 

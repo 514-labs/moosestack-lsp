@@ -107,6 +107,9 @@ test('validateSqlLocations Tests', async (t) => {
         endColumn: 6,
         templateText: 'SLECT ${...} FROM ${...}', // typo
         tagKind: 'bare',
+        tagLine: 1,
+        tagColumn: 1,
+        tagEndColumn: 4,
       },
     ];
 
@@ -147,6 +150,9 @@ test('validateSqlLocations Tests', async (t) => {
         endColumn: 6,
         templateText: 'SELECT ${...} FROM ${...}',
         tagKind: 'bare',
+        tagLine: 1,
+        tagColumn: 1,
+        tagEndColumn: 4,
       },
     ];
 
@@ -176,6 +182,9 @@ test('validateSqlLocations Tests', async (t) => {
         endColumn: 6,
         templateText: 'SLECT ${...}',
         tagKind: 'bare',
+        tagLine: 1,
+        tagColumn: 1,
+        tagEndColumn: 4,
       },
       {
         id: 'app/apis/bar.ts:100:22',
@@ -186,6 +195,9 @@ test('validateSqlLocations Tests', async (t) => {
         endColumn: 6,
         templateText: 'SELCT ${...}',
         tagKind: 'bare',
+        tagLine: 1,
+        tagColumn: 1,
+        tagEndColumn: 4,
       },
     ];
 
@@ -225,6 +237,9 @@ test('validateSqlLocations Tests', async (t) => {
         endColumn: 6,
         templateText: 'SLECT ${...}',
         tagKind: 'bare',
+        tagLine: 1,
+        tagColumn: 1,
+        tagEndColumn: 4,
       },
       {
         id: 'app/apis/bar.ts:54:22',
@@ -235,6 +250,9 @@ test('validateSqlLocations Tests', async (t) => {
         endColumn: 6,
         templateText: 'SELCT ${...}',
         tagKind: 'bare',
+        tagLine: 1,
+        tagColumn: 1,
+        tagEndColumn: 4,
       },
     ];
 
@@ -274,6 +292,9 @@ test('validateSqlLocations Tests', async (t) => {
         endColumn: 50,
         templateText: 'SELECT * FROM users',
         tagKind: 'statement',
+        tagLine: 1,
+        tagColumn: 1,
+        tagEndColumn: 14,
       },
       {
         id: 'test.ts:5:1',
@@ -284,6 +305,9 @@ test('validateSqlLocations Tests', async (t) => {
         endColumn: 30,
         templateText: "status = 'active'",
         tagKind: 'fragment',
+        tagLine: 5,
+        tagColumn: 1,
+        tagEndColumn: 13,
       },
       {
         id: 'test.ts:10:1',
@@ -294,6 +318,9 @@ test('validateSqlLocations Tests', async (t) => {
         endColumn: 50,
         templateText: 'SELECT 1',
         tagKind: 'bare',
+        tagLine: 1,
+        tagColumn: 1,
+        tagEndColumn: 4,
       },
     ];
 
@@ -328,6 +355,9 @@ test('validateSqlLocations Tests', async (t) => {
           endColumn: 50,
           templateText: 'SELECT ${...} FROM ${...}',
           tagKind: 'bare',
+          tagLine: 1,
+          tagColumn: 1,
+          tagEndColumn: 4,
         },
       ];
 
