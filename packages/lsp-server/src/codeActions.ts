@@ -204,17 +204,27 @@ export function findTemplateNodeById(
 ): ts.TaggedTemplateExpression | undefined {
   let targetNode: ts.TaggedTemplateExpression | undefined;
 
+  function isSqlTag(tag: ts.Expression): boolean {
+    if (ts.isIdentifier(tag) && tag.text === 'sql') return true;
+    if (
+      ts.isPropertyAccessExpression(tag) &&
+      ts.isIdentifier(tag.expression) &&
+      tag.expression.text === 'sql' &&
+      (tag.name.text === 'statement' || tag.name.text === 'fragment')
+    ) {
+      return true;
+    }
+    return false;
+  }
+
   function visit(node: ts.Node): void {
-    if (ts.isTaggedTemplateExpression(node)) {
-      const tag = node.tag;
-      if (ts.isIdentifier(tag) && tag.text === 'sql') {
-        const start = sourceFile.getLineAndCharacterOfPosition(
-          node.template.getStart(),
-        );
-        const id = `${sourceFile.fileName}:${start.line + 1}:${start.character + 1}`;
-        if (id === locationId) {
-          targetNode = node;
-        }
+    if (ts.isTaggedTemplateExpression(node) && isSqlTag(node.tag)) {
+      const start = sourceFile.getLineAndCharacterOfPosition(
+        node.template.getStart(),
+      );
+      const id = `${sourceFile.fileName}:${start.line + 1}:${start.character + 1}`;
+      if (id === locationId) {
+        targetNode = node;
       }
     }
     if (!targetNode) {
