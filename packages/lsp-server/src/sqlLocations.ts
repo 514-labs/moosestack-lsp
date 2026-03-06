@@ -38,7 +38,24 @@ export function loadSqlLocations(jsonContent: string): SqlLocationManifest {
     return {
       version: parsed.version ?? 1,
       sqlLocations: Array.isArray(parsed.sqlLocations)
-        ? parsed.sqlLocations
+        ? parsed.sqlLocations.map(
+            (loc: Record<string, unknown>): SqlLocation => ({
+              ...(loc as unknown as SqlLocation),
+              tagKind: (loc.tagKind as SqlTagKind | undefined) ?? 'bare',
+              tagLine:
+                (loc.tagLine as number | undefined) ??
+                (loc.line as number) ??
+                1,
+              tagColumn:
+                (loc.tagColumn as number | undefined) ??
+                (loc.column as number) ??
+                1,
+              tagEndColumn:
+                (loc.tagEndColumn as number | undefined) ??
+                (loc.column as number) ??
+                1,
+            }),
+          )
         : [],
     };
   } catch {
