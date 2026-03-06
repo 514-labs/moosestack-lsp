@@ -59,6 +59,9 @@ export function validateSqlLocations(
   const diagnosticsMap = new Map<string, Diagnostic[]>();
 
   for (const location of sqlLocations) {
+    // Skip validation for fragments — they're intentionally partial SQL
+    if (location.tagKind === 'fragment') continue;
+
     // Replace ${...} placeholders with valid SQL identifiers before validation
     const preparedSql = prepareSqlForValidation(location.templateText);
     const result = validateSql(preparedSql);

@@ -262,6 +262,59 @@ test('validateSqlLocations Tests', async (t) => {
     assert.ok(result.has('file:///project/app/apis/bar.ts'));
   });
 
+  await t.test('skips validation for fragment tagKind', () => {
+    const validatedSqls: string[] = [];
+    const locations: SqlLocation[] = [
+      {
+        id: 'test.ts:1:1',
+        file: '/project/test.ts',
+        line: 1,
+        column: 1,
+        endLine: 1,
+        endColumn: 50,
+        templateText: 'SELECT * FROM users',
+        tagKind: 'statement',
+      },
+      {
+        id: 'test.ts:5:1',
+        file: '/project/test.ts',
+        line: 5,
+        column: 1,
+        endLine: 5,
+        endColumn: 30,
+        templateText: "status = 'active'",
+        tagKind: 'fragment',
+      },
+      {
+        id: 'test.ts:10:1',
+        file: '/project/test.ts',
+        line: 10,
+        column: 1,
+        endLine: 10,
+        endColumn: 50,
+        templateText: 'SELECT 1',
+        tagKind: 'bare',
+      },
+    ];
+
+    const mockValidateSql: ValidateSqlFn = (sql) => {
+      validatedSqls.push(sql);
+      return { valid: true };
+    };
+
+    const mockCreateDiagnostic: CreateLocationDiagnosticFn = () => ({
+      uri: '',
+      diagnostic: createMockDiagnostic(''),
+    });
+
+    validateSqlLocations(locations, mockValidateSql, mockCreateDiagnostic);
+
+    // Fragment should be skipped, statement and bare should be validated
+    assert.strictEqual(validatedSqls.length, 2);
+    assert.ok(validatedSqls[0].includes('SELECT'));
+    assert.ok(validatedSqls[1].includes('SELECT'));
+  });
+
   await t.test(
     'prepares SQL by replacing ${...} placeholders before validation',
     () => {
