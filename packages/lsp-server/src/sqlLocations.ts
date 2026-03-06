@@ -1,3 +1,5 @@
+export type SqlTagKind = 'statement' | 'fragment' | 'bare';
+
 /**
  * Represents a SQL template literal location from .moose/sql-locations.json
  */
@@ -9,6 +11,7 @@ export interface SqlLocation {
   endLine: number;
   endColumn: number;
   templateText: string;
+  tagKind: SqlTagKind;
 }
 
 /**

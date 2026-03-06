@@ -20,6 +20,7 @@ test('loadSqlLocations Tests', async (t) => {
           endColumn: 6,
           templateText:
             '\n      SELECT \n        ${...},\n        ${...}\n      FROM ${...}\n    ',
+          tagKind: 'bare',
         },
       ],
     };
@@ -30,6 +31,27 @@ test('loadSqlLocations Tests', async (t) => {
     assert.strictEqual(result.sqlLocations.length, 1);
     assert.strictEqual(result.sqlLocations[0].file, '/project/app/apis/bar.ts');
     assert.strictEqual(result.sqlLocations[0].line, 54);
+  });
+
+  await t.test('parses tagKind from sql-locations.json', () => {
+    const json = JSON.stringify({
+      version: 1,
+      sqlLocations: [
+        {
+          id: 'test.ts:1:1',
+          file: '/project/test.ts',
+          line: 1,
+          column: 1,
+          endLine: 1,
+          endColumn: 50,
+          templateText: 'SELECT * FROM users',
+          tagKind: 'statement',
+        },
+      ],
+    });
+
+    const manifest = loadSqlLocations(json);
+    assert.strictEqual(manifest.sqlLocations[0].tagKind, 'statement');
   });
 
   await t.test('returns empty locations for invalid JSON', () => {

@@ -16,6 +16,7 @@ test('createLocationDiagnostic Tests', async (t) => {
         endLine: 61,
         endColumn: 6,
         templateText: 'SELECT ${...} FROM ${...}',
+        tagKind: 'bare',
       };
       const validationError = { message: 'Syntax error near SLECT' };
 
@@ -34,6 +35,7 @@ test('createLocationDiagnostic Tests', async (t) => {
       endLine: 61,
       endColumn: 6,
       templateText: 'SELECT ${...}',
+      tagKind: 'bare',
     };
     const validationError = { message: 'Error' };
 
@@ -55,6 +57,7 @@ test('createLocationDiagnostic Tests', async (t) => {
       endLine: 1,
       endColumn: 50,
       templateText: 'SLECT * FROM users',
+      tagKind: 'bare',
     };
     const validationError = { message: 'Expected SELECT, found SLECT' };
 
@@ -72,6 +75,7 @@ test('createLocationDiagnostic Tests', async (t) => {
       endLine: 1,
       endColumn: 50,
       templateText: 'SELECT',
+      tagKind: 'bare',
     };
     const validationError = { message: 'Error' };
 
@@ -90,6 +94,7 @@ test('createLocationDiagnostic Tests', async (t) => {
       endLine: 61,
       endColumn: 6,
       templateText: 'SELECT',
+      tagKind: 'bare',
     };
     const validationError = { message: 'Error' };
 

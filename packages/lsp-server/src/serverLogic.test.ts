@@ -106,6 +106,7 @@ test('validateSqlLocations Tests', async (t) => {
         endLine: 61,
         endColumn: 6,
         templateText: 'SLECT ${...} FROM ${...}', // typo
+        tagKind: 'bare',
       },
     ];
 
@@ -145,6 +146,7 @@ test('validateSqlLocations Tests', async (t) => {
         endLine: 61,
         endColumn: 6,
         templateText: 'SELECT ${...} FROM ${...}',
+        tagKind: 'bare',
       },
     ];
 
@@ -173,6 +175,7 @@ test('validateSqlLocations Tests', async (t) => {
         endLine: 61,
         endColumn: 6,
         templateText: 'SLECT ${...}',
+        tagKind: 'bare',
       },
       {
         id: 'app/apis/bar.ts:100:22',
@@ -182,6 +185,7 @@ test('validateSqlLocations Tests', async (t) => {
         endLine: 105,
         endColumn: 6,
         templateText: 'SELCT ${...}',
+        tagKind: 'bare',
       },
     ];
 
@@ -220,6 +224,7 @@ test('validateSqlLocations Tests', async (t) => {
         endLine: 15,
         endColumn: 6,
         templateText: 'SLECT ${...}',
+        tagKind: 'bare',
       },
       {
         id: 'app/apis/bar.ts:54:22',
@@ -229,6 +234,7 @@ test('validateSqlLocations Tests', async (t) => {
         endLine: 61,
         endColumn: 6,
         templateText: 'SELCT ${...}',
+        tagKind: 'bare',
       },
     ];
 
@@ -268,6 +274,7 @@ test('validateSqlLocations Tests', async (t) => {
           endLine: 1,
           endColumn: 50,
           templateText: 'SELECT ${...} FROM ${...}',
+          tagKind: 'bare',
         },
       ];
 

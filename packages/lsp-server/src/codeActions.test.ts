@@ -19,6 +19,7 @@ test('findSqlTemplateAtPosition Tests', async (t) => {
       endLine: 5,
       endColumn: 50,
       templateText: 'SELECT * FROM users',
+      tagKind: 'bare',
     },
     {
       id: 'test.ts:10:5',
@@ -28,6 +29,7 @@ test('findSqlTemplateAtPosition Tests', async (t) => {
       endLine: 15,
       endColumn: 10,
       templateText: 'SELECT ${...} FROM ${...}',
+      tagKind: 'bare',
     },
   ];
 

@@ -78,6 +78,7 @@ function extractSqlLocation(
     endLine: end.line + 1,
     endColumn: end.character + 1,
     templateText: extractTemplateText(node.template),
+    tagKind: 'bare',
   };
 }
 

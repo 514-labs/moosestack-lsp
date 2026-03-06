@@ -308,6 +308,7 @@ function createSqlLocation(
     endLine: endPosition.row + 1,
     endColumn: endPosition.column + 1,
     templateText: text,
+    tagKind: 'bare',
   };
 }
 
