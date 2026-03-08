@@ -1,7 +1,9 @@
 import assert from 'node:assert';
 import { test } from 'node:test';
 import ts from 'typescript';
+import { CodeActionKind } from 'vscode-languageserver/node';
 import {
+  createDeprecationCodeActions,
   createFormatSqlEdit,
   extractOriginalExpressions,
   findSqlTemplateAtPosition,
@@ -19,6 +21,10 @@ test('findSqlTemplateAtPosition Tests', async (t) => {
       endLine: 5,
       endColumn: 50,
       templateText: 'SELECT * FROM users',
+      tagKind: 'bare',
+      tagLine: 1,
+      tagColumn: 1,
+      tagEndColumn: 4,
     },
     {
       id: 'test.ts:10:5',
@@ -28,6 +34,10 @@ test('findSqlTemplateAtPosition Tests', async (t) => {
       endLine: 15,
       endColumn: 10,
       templateText: 'SELECT ${...} FROM ${...}',
+      tagKind: 'bare',
+      tagLine: 1,
+      tagColumn: 1,
+      tagEndColumn: 4,
     },
   ];
 
@@ -248,4 +258,64 @@ test('createFormatSqlEdit Tests', async (t) => {
       'Should end with newline and 4-space indent',
     );
   });
+});
+
+test('createDeprecationCodeActions Tests', async (t) => {
+  await t.test(
+    'returns two code actions for deprecated-sql-tag diagnostic',
+    () => {
+      const diagnostic = {
+        range: {
+          start: { line: 0, character: 10 },
+          end: { line: 0, character: 13 },
+        },
+        severity: 4 as const, // Hint
+        tags: [2 as const], // Deprecated
+        message: "The 'sql' tag is deprecated...",
+        source: 'moose-sql',
+        data: { type: 'deprecated-sql-tag' },
+      };
+
+      const uri = 'file:///project/test.ts';
+      const actions = createDeprecationCodeActions(uri, [diagnostic]);
+
+      assert.strictEqual(actions.length, 2);
+
+      // First action: convert to sql.statement
+      assert.ok(actions[0].title.includes('sql.statement'));
+      assert.strictEqual(actions[0].kind, CodeActionKind.QuickFix);
+      const changes0 = actions[0].edit?.changes?.[uri];
+      assert.ok(changes0);
+      assert.strictEqual(changes0.length, 1);
+      assert.strictEqual(changes0[0].newText, 'sql.statement');
+
+      // Second action: convert to sql.fragment
+      assert.ok(actions[1].title.includes('sql.fragment'));
+      assert.strictEqual(actions[1].kind, CodeActionKind.QuickFix);
+      const changes1 = actions[1].edit?.changes?.[uri];
+      assert.ok(changes1);
+      assert.strictEqual(changes1.length, 1);
+      assert.strictEqual(changes1[0].newText, 'sql.fragment');
+    },
+  );
+
+  await t.test(
+    'returns empty array when no deprecated-sql-tag diagnostics',
+    () => {
+      const diagnostic = {
+        range: {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 10 },
+        },
+        severity: 1 as const,
+        message: 'Invalid SQL: syntax error',
+        source: 'moose-sql',
+      };
+
+      const actions = createDeprecationCodeActions('file:///test.ts', [
+        diagnostic,
+      ]);
+      assert.strictEqual(actions.length, 0);
+    },
+  );
 });

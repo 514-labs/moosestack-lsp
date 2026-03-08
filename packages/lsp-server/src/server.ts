@@ -31,6 +31,7 @@ import {
 } from './clickhouseData';
 import { detectClickHouseVersion } from './clickhouseVersion';
 import {
+  createDeprecationCodeActions,
   createFormatSqlEdit,
   findSqlTemplateAtPosition,
   findTemplateNodeById,
@@ -453,7 +454,7 @@ connection.onInitialize(
           },
         },
         codeActionProvider: {
-          codeActionKinds: ['source.formatSql'],
+          codeActionKinds: [CodeActionKind.QuickFix, 'source.formatSql'],
         },
         completionProvider: {
           triggerCharacters: ['.', '(', ' '],
@@ -530,49 +531,58 @@ connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
   const filePath = new URL(params.textDocument.uri).pathname;
   if (!shouldValidateFile(filePath, mooseProjectRoot)) return [];
 
-  // Code actions only supported for TypeScript files (Format SQL requires AST access)
-  if (!isTypeScriptFile(filePath) || !tsService?.isHealthy()) return [];
+  const actions: CodeAction[] = [];
 
-  try {
-    const sourceFile = tsService.getSourceFile(filePath);
-    if (!sourceFile) return [];
-
-    const sqlLocations = extractSqlLocations(
-      sourceFile,
-      tsService.getTypeChecker(),
+  // Deprecation quick fixes (work from diagnostics context, no AST needed)
+  if (params.context.diagnostics.length > 0) {
+    actions.push(
+      ...createDeprecationCodeActions(
+        params.textDocument.uri,
+        params.context.diagnostics,
+      ),
     );
-
-    // Find if cursor is inside any SQL template
-    const location = findSqlTemplateAtPosition(
-      sqlLocations,
-      params.range.start.line,
-      params.range.start.character,
-    );
-
-    if (!location) return [];
-
-    // Find the AST node to compute the edit
-    const node = findTemplateNodeById(sourceFile, location.id);
-    if (!node) return [];
-
-    // Compute the edit directly (don't defer to resolve)
-    const edit = createFormatSqlEdit(sourceFile, node);
-    if (!edit) return [];
-
-    return [
-      {
-        title: 'Format SQL',
-        kind: `${CodeActionKind.Source}.formatSql`,
-        edit: {
-          changes: {
-            [params.textDocument.uri]: [edit],
-          },
-        },
-      },
-    ];
-  } catch {
-    return [];
   }
+
+  // Format SQL action (requires TypeScript AST)
+  if (isTypeScriptFile(filePath) && tsService?.isHealthy()) {
+    try {
+      const sourceFile = tsService.getSourceFile(filePath);
+      if (sourceFile) {
+        const sqlLocations = extractSqlLocations(
+          sourceFile,
+          tsService.getTypeChecker(),
+        );
+
+        const location = findSqlTemplateAtPosition(
+          sqlLocations,
+          params.range.start.line,
+          params.range.start.character,
+        );
+
+        if (location) {
+          const node = findTemplateNodeById(sourceFile, location.id);
+          if (node) {
+            const edit = createFormatSqlEdit(sourceFile, node);
+            if (edit) {
+              actions.push({
+                title: 'Format SQL',
+                kind: `${CodeActionKind.Source}.formatSql`,
+                edit: {
+                  changes: {
+                    [params.textDocument.uri]: [edit],
+                  },
+                },
+              });
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore errors in format action
+    }
+  }
+
+  return actions;
 });
 
 /**

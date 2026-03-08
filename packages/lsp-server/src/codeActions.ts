@@ -1,5 +1,10 @@
 import ts from 'typescript';
-import type { TextEdit } from 'vscode-languageserver/node';
+import {
+  type CodeAction,
+  CodeActionKind,
+  type Diagnostic,
+  type TextEdit,
+} from 'vscode-languageserver/node';
 import { formatSqlTemplate } from './formatting';
 import type { SqlLocation } from './sqlLocations';
 
@@ -199,17 +204,27 @@ export function findTemplateNodeById(
 ): ts.TaggedTemplateExpression | undefined {
   let targetNode: ts.TaggedTemplateExpression | undefined;
 
+  function isSqlTag(tag: ts.Expression): boolean {
+    if (ts.isIdentifier(tag) && tag.text === 'sql') return true;
+    if (
+      ts.isPropertyAccessExpression(tag) &&
+      ts.isIdentifier(tag.expression) &&
+      tag.expression.text === 'sql' &&
+      (tag.name.text === 'statement' || tag.name.text === 'fragment')
+    ) {
+      return true;
+    }
+    return false;
+  }
+
   function visit(node: ts.Node): void {
-    if (ts.isTaggedTemplateExpression(node)) {
-      const tag = node.tag;
-      if (ts.isIdentifier(tag) && tag.text === 'sql') {
-        const start = sourceFile.getLineAndCharacterOfPosition(
-          node.template.getStart(),
-        );
-        const id = `${sourceFile.fileName}:${start.line + 1}:${start.character + 1}`;
-        if (id === locationId) {
-          targetNode = node;
-        }
+    if (ts.isTaggedTemplateExpression(node) && isSqlTag(node.tag)) {
+      const start = sourceFile.getLineAndCharacterOfPosition(
+        node.template.getStart(),
+      );
+      const id = `${sourceFile.fileName}:${start.line + 1}:${start.character + 1}`;
+      if (id === locationId) {
+        targetNode = node;
       }
     }
     if (!targetNode) {
@@ -219,4 +234,55 @@ export function findTemplateNodeById(
 
   visit(sourceFile);
   return targetNode;
+}
+
+/**
+ * Creates quick-fix code actions for deprecated bare `sql` tag diagnostics.
+ * Offers "Convert to sql.statement" and "Convert to sql.fragment".
+ */
+export function createDeprecationCodeActions(
+  uri: string,
+  diagnostics: Diagnostic[],
+): CodeAction[] {
+  const actions: CodeAction[] = [];
+
+  for (const diagnostic of diagnostics) {
+    const data = diagnostic.data as { type?: string } | undefined;
+    if (data?.type !== 'deprecated-sql-tag') continue;
+
+    actions.push(
+      {
+        title: "Convert to 'sql.statement'",
+        kind: CodeActionKind.QuickFix,
+        diagnostics: [diagnostic],
+        edit: {
+          changes: {
+            [uri]: [
+              {
+                range: diagnostic.range,
+                newText: 'sql.statement',
+              },
+            ],
+          },
+        },
+      },
+      {
+        title: "Convert to 'sql.fragment'",
+        kind: CodeActionKind.QuickFix,
+        diagnostics: [diagnostic],
+        edit: {
+          changes: {
+            [uri]: [
+              {
+                range: diagnostic.range,
+                newText: 'sql.fragment',
+              },
+            ],
+          },
+        },
+      },
+    );
+  }
+
+  return actions;
 }

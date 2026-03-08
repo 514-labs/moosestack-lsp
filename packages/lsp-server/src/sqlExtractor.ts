@@ -1,26 +1,62 @@
 import ts from 'typescript';
-import type { SqlLocation } from './sqlLocations';
+import type { SqlLocation, SqlTagKind } from './sqlLocations';
 
 /**
- * Check if the sql tag comes from @514labs/moose-lib.
- * Falls back to returning true if symbol can't be resolved
- * (better to have false positives than miss real sql queries).
+ * Check if the tag is a moose-lib sql tag and determine its kind.
+ * Returns the tag kind, or null if it's not a moose-lib sql tag.
+ *
+ * Handles:
+ * - sql`...`           -> 'bare'
+ * - sql.statement`...` -> 'statement'
+ * - sql.fragment`...`  -> 'fragment'
  */
-function isMooseLibSqlTag(
+function getMooseSqlTagKind(
   node: ts.TaggedTemplateExpression,
   typeChecker: ts.TypeChecker,
-): boolean {
+): SqlTagKind | null {
   const tag = node.tag;
 
-  // Must be a simple identifier `sql`
-  if (!ts.isIdentifier(tag) || tag.text !== 'sql') {
-    return false;
+  let sqlIdentifier: ts.Identifier;
+  let tagKind: SqlTagKind;
+
+  if (ts.isIdentifier(tag) && tag.text === 'sql') {
+    // Bare sql`...`
+    sqlIdentifier = tag;
+    tagKind = 'bare';
+  } else if (
+    ts.isPropertyAccessExpression(tag) &&
+    ts.isIdentifier(tag.expression) &&
+    tag.expression.text === 'sql'
+  ) {
+    // sql.statement`...` or sql.fragment`...`
+    const propName = tag.name.text;
+    if (propName === 'statement') {
+      tagKind = 'statement';
+    } else if (propName === 'fragment') {
+      tagKind = 'fragment';
+    } else {
+      return null;
+    }
+    sqlIdentifier = tag.expression;
+  } else {
+    return null;
   }
 
-  const symbol = typeChecker.getSymbolAtLocation(tag);
-  if (symbol?.declarations?.length) {
-    // Check if any declaration originates from moose-lib
-    const isFromMooseLib = symbol.declarations.some((decl) => {
+  // Verify the sql identifier comes from moose-lib
+  const symbol = typeChecker.getSymbolAtLocation(sqlIdentifier);
+  if (!symbol) {
+    // Can't resolve the symbol at all — assume it's our sql tag
+    return tagKind;
+  }
+
+  // Follow import aliases to the original declaration
+  const resolvedSymbol =
+    symbol.flags & ts.SymbolFlags.Alias
+      ? typeChecker.getAliasedSymbol(symbol)
+      : symbol;
+
+  if (resolvedSymbol?.declarations?.length) {
+    const isFromMooseLib = resolvedSymbol.declarations.some((decl) => {
       const sourceFile = decl.getSourceFile();
       const fileName = sourceFile.fileName;
       return (
@@ -31,13 +67,14 @@ function isMooseLibSqlTag(
       );
     });
     if (isFromMooseLib) {
-      return true;
+      return tagKind;
     }
+    // Symbol resolved to a non-moose-lib declaration — not our tag
+    return null;
   }
 
-  // Fallback: if we can't resolve the symbol, assume it's our sql tag
-  // (better to have false positives than miss real sql queries)
-  return true;
+  // Fallback: symbol exists but has no declarations — assume it's our sql tag
+  return tagKind;
 }
 
 /**
@@ -64,11 +101,18 @@ function extractTemplateText(template: ts.TemplateLiteral): string {
 function extractSqlLocation(
   node: ts.TaggedTemplateExpression,
   sourceFile: ts.SourceFile,
+  tagKind: SqlTagKind,
 ): SqlLocation {
   const start = sourceFile.getLineAndCharacterOfPosition(
     node.template.getStart(),
   );
   const end = sourceFile.getLineAndCharacterOfPosition(node.template.getEnd());
+
+  // Tag position: covers `sql`, `sql.statement`, or `sql.fragment`
+  const tagStart = sourceFile.getLineAndCharacterOfPosition(
+    node.tag.getStart(),
+  );
+  const tagEnd = sourceFile.getLineAndCharacterOfPosition(node.tag.getEnd());
 
   return {
     id: `${sourceFile.fileName}:${start.line + 1}:${start.character + 1}`,
@@ -78,6 +122,10 @@ function extractSqlLocation(
     endLine: end.line + 1,
     endColumn: end.character + 1,
     templateText: extractTemplateText(node.template),
+    tagKind,
+    tagLine: tagStart.line + 1,
+    tagColumn: tagStart.character + 1,
+    tagEndColumn: tagEnd.character + 1,
   };
 }
 
@@ -92,11 +140,11 @@ export function extractSqlLocations(
   const locations: SqlLocation[] = [];
 
   function visit(node: ts.Node): void {
-    if (
-      ts.isTaggedTemplateExpression(node) &&
-      isMooseLibSqlTag(node, typeChecker)
-    ) {
-      locations.push(extractSqlLocation(node, sourceFile));
+    if (ts.isTaggedTemplateExpression(node)) {
+      const tagKind = getMooseSqlTagKind(node, typeChecker);
+      if (tagKind !== null) {
+        locations.push(extractSqlLocation(node, sourceFile, tagKind));
+      }
     }
     ts.forEachChild(node, visit);
   }
