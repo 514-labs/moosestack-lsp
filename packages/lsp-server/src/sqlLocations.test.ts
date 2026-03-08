@@ -77,7 +77,7 @@ test('loadSqlLocations Tests', async (t) => {
 
       const manifest = loadSqlLocations(json);
       const loc = manifest.sqlLocations[0];
-      assert.strictEqual(loc.tagKind, 'bare');
+      assert.strictEqual(loc.tagKind, 'statement');
       assert.strictEqual(loc.tagLine, 10);
       assert.strictEqual(loc.tagColumn, 5);
       assert.strictEqual(loc.tagEndColumn, 5);
