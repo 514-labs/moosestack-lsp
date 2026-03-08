@@ -44,8 +44,19 @@ function getMooseSqlTagKind(
 
   // Verify the sql identifier comes from moose-lib
   const symbol = typeChecker.getSymbolAtLocation(sqlIdentifier);
-  if (symbol?.declarations?.length) {
-    const isFromMooseLib = symbol.declarations.some((decl) => {
+  if (!symbol) {
+    // Can't resolve the symbol at all — assume it's our sql tag
+    return tagKind;
+  }
+
+  // Follow import aliases to the original declaration
+  const resolvedSymbol =
+    symbol.flags & ts.SymbolFlags.Alias
+      ? typeChecker.getAliasedSymbol(symbol)
+      : symbol;
+
+  if (resolvedSymbol?.declarations?.length) {
+    const isFromMooseLib = resolvedSymbol.declarations.some((decl) => {
       const sourceFile = decl.getSourceFile();
       const fileName = sourceFile.fileName;
       return (
@@ -58,9 +69,11 @@ function getMooseSqlTagKind(
     if (isFromMooseLib) {
       return tagKind;
     }
+    // Symbol resolved to a non-moose-lib declaration — not our tag
+    return null;
   }
 
-  // Fallback: if we can't resolve the symbol, assume it's our sql tag
+  // Fallback: symbol exists but has no declarations — assume it's our sql tag
   return tagKind;
 }
 

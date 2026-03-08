@@ -212,9 +212,7 @@ console.log(x + y);
       }
     });
 
-    it('extracts sql tag even when symbol cannot be resolved (fallback behavior)', () => {
-      // When TypeScript can't resolve the sql symbol (e.g., mock setup issues),
-      // we fall back to accepting it (better to have false positives than miss real sql queries)
+    it('ignores sql tag when symbol resolves to non-moose-lib declaration', () => {
       const { program, tmpDir } = createTestProgram({
         'src/index.ts': `
 // Define our own sql function (not from moose-lib)
@@ -235,9 +233,8 @@ const query = sql\`SELECT * FROM users\`;
         const typeChecker = program.getTypeChecker();
         const locations = extractSqlLocations(sourceFile, typeChecker);
 
-        // With fallback behavior, we accept sql tags even when we can't verify
-        // they come from moose-lib (better to have false positives)
-        assert.strictEqual(locations.length, 1);
+        // Symbol resolves to a local function, not moose-lib — should be ignored
+        assert.strictEqual(locations.length, 0);
       } finally {
         cleanupTestProject(tmpDir);
       }
